@@ -1,22 +1,67 @@
-from django.contrib import admin
-from .models import User, Gateway, Device, DeviceVariable, ModbusMappingVariable, DlmsMappingVariable, ComputedVariable, Button, DeviceData, EnergyData, GatewayData
+from django.contrib import admin, messages
+from .models import User, Gateway, Device, DeviceVariable, ModbusMappingVariable, DlmsMappingVariable, ComputedVariable, Button, DeviceData, EnergyData, GatewayData, GatewayMqttCredentials
 from .commands import set_pin_status
 from django.utils.html import format_html
 from django.urls import reverse
 from adminsortable2.admin import  SortableAdminBase, SortableStackedInline
 from .forms import DeviceForm, DlmsMappingVariableForm
 
+# Importa il modulo admin_mqtt per registrare GatewayMqttCredentialsAdmin
+# e le funzioni di provisioning. L'import esegue il @admin.register lì dentro.
+from . import admin_mqtt  # noqa: F401
+
 class GatewayAdmin(admin.ModelAdmin):
-    list_display = ('ip_address', 'get_users')
-    list_filter = ('user','ip_address')  # Filter by user and active status
-    search_fields = ('user', 'ip_address')  # Search bar
+    list_display = ('ip_address', 'name', 'use_mqtt', 'mqtt_status', 'get_users')
+    list_filter = ('user','ip_address', 'use_mqtt')
+    search_fields = ('user', 'ip_address', 'name')
     filter_horizontal = ('user',)
     exclude = ('performance', 'availability', 'production', 'consumption')
+    readonly_fields = ('mqtt_bundle_link',)
+    actions = ['regenerate_mqtt_credentials']
+
+    fieldsets = (
+        (None, {
+            'fields': ('name', 'ip_address', 'user', 'use_mqtt', 'performance_factor'),
+        }),
+        ('MQTT', {
+            'fields': ('mqtt_bundle_link',),
+            'description': 'Le credenziali MQTT vengono create automaticamente al primo salvataggio del gateway.',
+        }),
+    )
 
     def get_users(self, obj):
         return ", ".join([user.username for user in obj.user.all()])
     get_users.short_description = 'Users'
-    
+
+    def mqtt_status(self, obj):
+        cred = getattr(obj, 'mqtt_credentials', None)
+        if not cred:
+            return format_html('<span style="color:#888">—</span>')
+        if cred.password_revealed:
+            return format_html('<span style="color:#080">✓ provisioned</span>')
+        return format_html('<strong style="color:#a30">⚠ password da scaricare</strong>')
+    mqtt_status.short_description = 'MQTT'
+
+    def mqtt_bundle_link(self, obj):
+        if not obj.pk:
+            return format_html('<em>Salva il gateway per generare le credenziali MQTT.</em>')
+        cred = getattr(obj, 'mqtt_credentials', None)
+        if not cred:
+            return format_html('<em>Credenziali non ancora generate.</em>')
+        url = reverse('gateway_mqtt_bundle', args=[obj.pk])
+        if cred.password_revealed:
+            return format_html(
+                '<em>Il bundle è già stato scaricato. Per ri-scaricarlo usa "Rigenera credenziali" '
+                'tra le azioni della lista Gateway.</em>'
+            )
+        return format_html(
+            '<a class="button" style="background:#28a745;color:white;padding:6px 12px;'
+            'border-radius:4px;text-decoration:none;" href="{}">⬇ Scarica bundle gateway</a>'
+            '<br><small>Una volta scaricato, la password non sarà più recuperabile.</small>',
+            url,
+        )
+    mqtt_bundle_link.short_description = 'Bundle Telegraf'
+
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
 
@@ -28,10 +73,57 @@ class GatewayAdmin(admin.ModelAdmin):
                 # Also sync users to device data
                 for data in device.device_data.all():
                     data.user.add(user)
-                
+
                 # Also sync users to energy data
                 for energy_data in device.energy_data.all():
                     energy_data.user.add(user)
+
+    @admin.action(description="Rigenera credenziali MQTT (invalida quelle esistenti)")
+    def regenerate_mqtt_credentials(self, request, queryset):
+        """Cancella le vecchie credenziali, ne genera di nuove, riscrive Mosquitto."""
+        from .signals import _generate_password, _gateway_username, _sync_mosquitto_state
+        from .mqtt import admin_client
+
+        n_ok = 0
+        n_err = 0
+        for gw in queryset:
+            username = _gateway_username(gw.pk)
+            new_password = _generate_password()
+
+            # Aggiorna o crea il record DB
+            cred, _ = GatewayMqttCredentials.objects.update_or_create(
+                gateway=gw,
+                defaults={
+                    'username': username,
+                    'password_plaintext': new_password,
+                    'password_revealed': False,
+                },
+            )
+            try:
+                admin_client.add_user(username=username, password=new_password)
+                n_ok += 1
+            except admin_client.MosquittoAdminError as e:
+                n_err += 1
+                self.message_user(
+                    request,
+                    f"Errore broker per gateway {gw.pk}: {e}",
+                    messages.ERROR,
+                )
+
+        # Una sola sync ACL alla fine
+        try:
+            _sync_mosquitto_state()
+        except Exception as e:
+            self.message_user(request, f"Errore sync ACL: {e}", messages.WARNING)
+
+        if n_ok:
+            self.message_user(
+                request,
+                f"{n_ok} credenziali rigenerate. Apri il dettaglio del gateway per scaricare il nuovo bundle.",
+                messages.SUCCESS,
+            )
+        if n_err:
+            self.message_user(request, f"{n_err} con errori.", messages.WARNING)
 
 class MemoryMappingInlineModbus(SortableStackedInline, admin.StackedInline):
     model = ModbusMappingVariable

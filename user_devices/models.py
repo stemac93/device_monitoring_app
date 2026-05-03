@@ -194,3 +194,54 @@ class Button(models.Model):
 
     def __str__(self):
         return f"{self.Gateway.name}, {self.Gateway.ip_address}"
+
+class GatewayMqttCredentials(models.Model):
+    """Credenziali MQTT per un Gateway.
+
+    La password viene generata automaticamente alla creazione del Gateway
+    (vedi signals.py). È visibile in chiaro UNA SOLA volta nell'admin, dopo
+    di che viene azzerata e il flag `password_revealed` impedisce successive
+    visualizzazioni.
+
+    L'hash effettivo della password vive nel file passwd di Mosquitto, scritto
+    dal helper container mosquitto-admin via API REST.
+    """
+
+    gateway = models.OneToOneField(
+        Gateway,
+        on_delete=models.CASCADE,
+        related_name="mqtt_credentials",
+    )
+    username = models.CharField(max_length=64, unique=True)
+    password_plaintext = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text=(
+            "Password in chiaro mostrata UNA volta dopo la creazione. "
+            "Verrà azzerata dopo il primo accesso/visualizzazione."
+        ),
+    )
+    password_revealed = models.BooleanField(
+        default=False,
+        help_text="True dopo che la password è stata vista almeno una volta.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Gateway MQTT credentials"
+        verbose_name_plural = "Gateway MQTT credentials"
+
+    def __str__(self):
+        return f"{self.username} (gateway pk={self.gateway_id})"
+
+    def reveal_once(self) -> str:
+        """Ritorna la password in chiaro UNA SOLA VOLTA, poi la azzera."""
+        if self.password_revealed:
+            return ""
+        pw = self.password_plaintext
+        self.password_plaintext = ""
+        self.password_revealed = True
+        self.save(update_fields=["password_plaintext", "password_revealed", "updated_at"])
+        return pw
