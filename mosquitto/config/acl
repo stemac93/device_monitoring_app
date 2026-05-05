@@ -1,0 +1,26 @@
+# Mosquitto ACL
+# Template da personalizzare con gli username effettivi dei gateway e del consumer.
+#
+# Regole:
+# - Ogni gateway ha uno username dedicato (es. gw-1, gw-2, ...) e può pubblicare
+#   SOLO sul suo sottoramo plants/<gateway_pk>/#
+# - Il consumer Django legge tutto plants/#
+#
+# Ricorda: dopo ogni modifica ricarica con:
+#   docker compose exec mosquitto kill -HUP 1
+
+# --- Consumer Django: lettura su tutto ---
+user django-consumer
+topic read plants/#
+
+# --- Gateway 1 (Gateway.pk = 1) ---
+user gw-1
+topic write plants/1/#
+topic read plants/1/#
+
+# --- Gateway 2 (Gateway.pk = 2) ---
+#user gw-2
+#topic write plants/2/#
+#topic read plants/2/#
+
+# --- Aggiungere qui altri gateway ---

@@ -9,3 +9,4 @@ pytest
 django-admin-sortable2
 requests
 pytz
+paho-mqtt>=2.0

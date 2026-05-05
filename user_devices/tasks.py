@@ -1,187 +1,226 @@
 import logging
-
 import time
+
 from celery import shared_task, group
-from celery.exceptions import SoftTimeLimitExceeded
-from .models import Device, Gateway, DeviceData, EnergyData
 from pymodbus.client import ModbusTcpClient
-from redis import Redis 
+from redis import Redis
 from redis.lock import Lock
+
+from .models import Device, Gateway, DeviceData, EnergyData
 import user_devices.functions as functions
+from .mqtt.cache import get_raw, get_raw_age
 from .helper_funcs import convert_to_local_time
 
 logger = logging.getLogger(__name__)
 
-redis_client = Redis(host='redis', port=6379)
+redis_client = Redis(host="redis", port=6379)
 
 """
-    Celery task to:
-    1. Scan devices connected to the gateway.
-    2. Read Modbus registers for each device.
-    3. Map the data to variables and compute derived values.
-    4. Save data variable in database in JSON format.
+Celery task, un'istanza per gateway. Comportamento per ramo Modbus:
+
+- Se gateway.use_mqtt == False (default): polling Modbus TCP diretto via mbusd,
+  come prima della migrazione. Nessun cambiamento osservabile.
+- Se gateway.use_mqtt == True: legge gli ultimi valori RAW dalla cache Redis
+  popolata dal consumer MQTT (Telegraf pubblica ogni ~30s).
+
+Il ramo DLMS è invariato e non dipende dal flag.
+
+Questo permette una migrazione gateway-per-gateway: abiliti `use_mqtt` su un
+singolo Gateway dopo aver configurato Telegraf sul suo RPi, e solo quel
+gateway passa al nuovo percorso. Gli altri continuano con polling TCP.
 """
+
+
 @shared_task(soft_time_limit=240, time_limit=300)
 def scan_and_read_devices(gateway_ip):
     lock_key = f"lock_device_{gateway_ip}"
-    
-    # Use context manager to handle lock acquisition and release automatically
-    with Lock(redis_client, lock_key, timeout=300) as lock:
-        gateway = Gateway.objects.get(ip_address=gateway_ip)
-        logger.info(f"Scanning devices for gateway {gateway.ip_address}")
 
-        # Get only devices connected to this gateway IP
-        devices = Device.objects.filter(Gateway = gateway)
+    with Lock(redis_client, lock_key, timeout=300):
+        try:
+            gateway = Gateway.objects.get(ip_address=gateway_ip)
+        except Gateway.DoesNotExist:
+            logger.warning("Gateway %s not found", gateway_ip)
+            return
+
+        logger.info(
+            "Processing devices for gateway %s (use_mqtt=%s)",
+            gateway.ip_address,
+            gateway.use_mqtt,
+        )
+        devices = Device.objects.filter(Gateway=gateway)
         if not devices:
-            logger.info(f"No devices found for gateway {gateway.ip_address}")
+            logger.info("No devices found for gateway %s", gateway.ip_address)
             return
 
         skip_dlms_devices = False
-        logger.info(f"Skip DLMS devices: {skip_dlms_devices}")
         client = None
+
         for device in devices:
-            if device.is_enabled:
-                values = None  # Initialize values for each device
-                try:
-                    logger.info(f"Protocol: {device.protocol}")
-                    if device.protocol == 'modbus':
-                        # Configure Modbus client with timeout to prevent connection hangs
-                        client = ModbusTcpClient(
-                            gateway.ip_address, 
-                            port=device.port,
-                            timeout=30  # 30 seconds timeout for connection and operations
-                        )
-                        connection = client.connect()
-                        if not connection:
-                            logger.warning(f"Failed to connect to device on {gateway.ip_address}:{device.port}")
-                            client.close()
-                            client = None
-                            # Add delay before trying next device to avoid overwhelming the gateway
-                            time.sleep(1)
-                            continue
-                        
-                        logger.info(f"Connected to device {device.name} on {gateway.ip_address}:{device.port}")
-                        
-                        # Step 1a: Read raw Modbus registers
-                        base_values = functions.read_modbus_registers(device, client)
-                        logger.info(f"Values read: {base_values}")
+            if not device.is_enabled:
+                continue
 
-                        # Step 2a: Map raw values
-                        mapped_values = functions.map_variables(base_values, device)
-                        logger.info(f"Values mapped: {mapped_values}")
-                        
-                        # Step 3: Compute derived variables
-                        computed_values = functions.compute_variables(mapped_values, device)
-                        logger.info(f"Values computed: {computed_values}")
-
-                        # Step 4: Merge values
-                        values = {**mapped_values, **computed_values}
-
-                        logger.info(f"Final values: {values}")
-                    elif device.protocol == 'dlms' and not skip_dlms_devices:
-                        # Probe the DLMS device to check if it is reachable with a timeout of 30 seconds
-                        skip_dlms_devices = not functions.probe_dlms_device(device, timeout=30)
-                
-                        if skip_dlms_devices:
-                            # Add delay before trying next device
-                            time.sleep(1)
-                            continue
-
-                        logger.info(f"Connected to device {device.name} on {gateway.ip_address}:{device.port}")
-                        values = functions.read_dlms_values(device)
-                        logger.info(f"Values read: {values}")    
+            values = None
+            try:
+                if device.protocol == "modbus":
+                    if gateway.use_mqtt:
+                        values = _process_modbus_from_cache(device)
                     else:
+                        client, values = _process_modbus_from_tcp(device, gateway, client)
+
+                elif device.protocol == "dlms" and not skip_dlms_devices:
+                    # Ramo DLMS: invariato, polling diretto
+                    if not functions.probe_dlms_device(device, timeout=30):
+                        skip_dlms_devices = True
+                        time.sleep(1)
                         continue
-                    
-                    if values is not None:
-
-                        # Step 5: Compute device availability
-                        device.availability = functions.compute_device_availability(device, values)
-                        logger.info(f"Device availability: {device.availability}")
-
-                        # Step 6: Compute energy
-                        logger.info(f"Computing energy for device {device.name}")
-                        device_data = DeviceData.objects.filter(device_name=device)
-                        energy_data = EnergyData.objects.filter(device_name=device)
-                        energy_values = functions.compute_energy(values, device_data, energy_data)
-
-                        # Step 7: Store in DB
-                        functions.store_data_in_database(device, values)
-                        logger.info(f"Data saved for device {device.name}")
-
-                        # Step 8: Store energy data in DB separately
-                        if energy_values is not None:
-                            functions.store_energy_data_in_database(device, energy_values)
-                            device.daily_production = energy_values.get('Energy_daily_produced', {}).get('value', 0.0)
-                            device.daily_consumption = energy_values.get('Energy_daily_consumed', {}).get('value', 0.0)
-                            logger.info(f"Energy data saved for device {device.name}")
-
-                        device.save()
-                        logger.info(f"Device availability saved for device {device.name}")
-
-                except Exception as e:
-                    logger.error(f"Error while reading values for device {device.name}: {e}")
-                    # Use continue instead of return to process remaining devices
+                    logger.info("Reading DLMS device %s", device.name)
+                    values = functions.read_dlms_values(device)
+                    logger.info("DLMS values read: %s", values)
+                else:
                     continue
-                finally:
-                    # Close Modbus client if it was opened
-                    if client is not None:
-                        try:
-                            client.close()
-                        except Exception as e:
-                            logger.warning(f"Error closing Modbus client for device {device.name}: {e}")
-                        finally:
-                            client = None
-                    # Add delay between device readings to avoid overwhelming the gateway
-                    time.sleep(1)        
-                        
+
+                if values is not None:
+                    device.availability = functions.compute_device_availability(device, values)
+                    logger.info("Device availability: %s", device.availability)
+
+                    device_data = DeviceData.objects.filter(device_name=device)
+                    energy_data = EnergyData.objects.filter(device_name=device)
+                    energy_values = functions.compute_energy(values, device_data, energy_data)
+
+                    functions.store_data_in_database(device, values)
+                    logger.info("Data saved for device %s", device.name)
+
+                    if energy_values is not None:
+                        functions.store_energy_data_in_database(device, energy_values)
+                        device.daily_production = energy_values.get(
+                            "Energy_daily_produced", {}
+                        ).get("value", 0.0)
+                        device.daily_consumption = energy_values.get(
+                            "Energy_daily_consumed", {}
+                        ).get("value", 0.0)
+                        logger.info("Energy data saved for device %s", device.name)
+
+                    device.save()
+
+            except Exception as e:
+                logger.error("Error processing device %s: %s", device.name, e)
+                continue
+            finally:
+                time.sleep(0.1)
+
+        # Chiudi eventuale client TCP aperto in modalità polling
+        if client is not None:
+            try:
+                client.close()
+            except Exception as e:
+                logger.warning("Error closing Modbus client: %s", e)
+
+
+def _process_modbus_from_cache(device):
+    """Modalità MQTT: recupera ultimi registri RAW dalla cache Redis popolata
+    dal consumer MQTT.
+
+    Ritorna dict `values` nello stesso formato del polling, oppure None se
+    dati assenti o stale (in quel caso il device non viene aggiornato in DB
+    per evitare di scrivere valori finti durante disconnessioni).
+    """
+    base_values = get_raw(device.pk)
+    if base_values is None:
+        age = get_raw_age(device.pk)
+        if age is None:
+            logger.info("No MQTT data yet for device %s (pk=%s)", device.name, device.pk)
+        else:
+            logger.warning(
+                "Stale MQTT data for device %s (pk=%s, age=%.0fs) - skipping",
+                device.name,
+                device.pk,
+                age,
+            )
+        return None
+
+    logger.info(
+        "MQTT cache hit for device %s (pk=%s): %d registers",
+        device.name,
+        device.pk,
+        len(base_values),
+    )
+
+    mapped_values = functions.map_variables(base_values, device)
+    computed_values = functions.compute_variables(mapped_values, device)
+    return {**mapped_values, **computed_values}
+
+
+def _process_modbus_from_tcp(device, gateway, client):
+    """Modalità legacy: polling Modbus TCP diretto via mbusd, come prima.
+
+    Ritorna (client, values) per riutilizzare il client tra device sullo
+    stesso gateway quando possibile (anche se il codice originale chiudeva
+    e riapriva per ogni device; qui ricalchiamo lo stesso pattern).
+    """
+    # Come nel codice originale: una nuova connessione per device
+    if client is not None:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+    client = ModbusTcpClient(
+        gateway.ip_address,
+        port=device.port,
+        timeout=30,
+    )
+    if not client.connect():
+        logger.warning(
+            "Failed to connect to device on %s:%s",
+            gateway.ip_address,
+            device.port,
+        )
+        client.close()
+        time.sleep(1)
+        return None, None
+
+    logger.info("TCP connected to %s on %s:%s", device.name, gateway.ip_address, device.port)
+
+    base_values = functions.read_modbus_registers(device, client)
+    if base_values is None:
+        return client, None
+
+    mapped_values = functions.map_variables(base_values, device)
+    computed_values = functions.compute_variables(mapped_values, device)
+    return client, {**mapped_values, **computed_values}
+
+
 @shared_task
 def compute_plant_metrics():
-    """
-    Celery task to compute and store plant metrics (availability, performance, production, consumption, radiance)
-    for all gateways. Runs every 15 minutes.
-    """
+    """Invariato: aggregazione per-gateway, opera solo su DB."""
     logger.info("Computing plant metrics for all gateways...")
-    
     try:
         gateways = Gateway.objects.all()
-        
         for gateway in gateways:
             try:
-                # Get devices for this gateway
                 devices = Device.objects.filter(Gateway=gateway)
                 if not devices:
-                    logger.info(f"No devices found for gateway {gateway.ip_address}")
+                    logger.info("No devices found for gateway %s", gateway.ip_address)
                     continue
-                
-                # Compute plant availability
+
                 availability = functions.compute_plant_availability(gateway, devices)
-
-                # Compute plant performance
                 performance = functions.compute_plant_performance(gateway, devices)
-
-                # Compute plant production
                 production = functions.compute_plant_production(gateway, devices)
-                
-                # Collect radiance data from devices
                 radiance_value = functions.find_radiance_value(devices)
 
-                # Create new gateway data with value and unit, like device data
                 gateway_data = {
-                    'availability': {'value': availability, 'unit': '%'},
-                    'performance': {'value': performance, 'unit': '%'},
-                    'production': {'value': production, 'unit': 'kW'},
-                    'radiance': {'value': radiance_value, 'unit': 'W/m²'}
+                    "availability": {"value": availability, "unit": "%"},
+                    "performance": {"value": performance, "unit": "%"},
+                    "production": {"value": production, "unit": "kW"},
+                    "radiance": {"value": radiance_value, "unit": "W/m²"},
                 }
                 functions.store_gateway_data_in_database(gateway, gateway_data)
-                logger.info(f"Plant availability, performance, production and radiance saved for gateway {gateway.ip_address}")
-                
+                logger.info("Plant metrics saved for gateway %s", gateway.ip_address)
             except Exception as e:
-                logger.error(f"Error while computing plant metrics for gateway {gateway.ip_address}: {e}")
+                logger.error("Error computing metrics for gateway %s: %s", gateway.ip_address, e)
                 continue
-                
     except Exception as e:
-        logger.error(f"Error in compute_plant_metrics task: {e}")
+        logger.error("Error in compute_plant_metrics task: %s", e)
 
 
 @shared_task
@@ -189,198 +228,127 @@ def check_all_devices():
     logger.info("Checking all devices...")
     gateways = Gateway.objects.all()
     gateway_ip = [gateway.ip_address for gateway in gateways]
-    # Create a group of tasks for checking each device
     job = group(scan_and_read_devices.s(ip_address) for ip_address in gateway_ip)
     job.apply_async()
 
 
 @shared_task
 def midnight_energy_aggregation():
-    """
-    Celery task to aggregate and save energy data at midnight.
-    Collects daily, weekly, and monthly energy totals per gateway.
-    """
+    """Invariato: legge solo dal DB."""
     from datetime import datetime, timezone, timedelta
-    
+
     logger.info("Starting midnight energy aggregation...")
-    
     try:
-        # Get current time and convert to local timezone (same as functions.py)
         now = datetime.now(timezone.utc)
         now_local = convert_to_local_time(now)
         today = now_local.date()
-        
-        # Get all gateways
+
         gateways = Gateway.objects.all()
-        
         if not gateways.exists():
             logger.info("No gateways found for energy aggregation")
             return
-        
-        # Calculate time ranges using same logic as functions.py
-        # Start of UTC day
+
         start_of_day_utc = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        
-        # Convert to local (Django TZ)
         start_of_day_local = convert_to_local_time(start_of_day_utc)
-        
-        # For filtering DB (which expects UTC), convert back. Timestamps are utc in django
         start_of_day_filter = start_of_day_local.astimezone(timezone.utc)
-        
-        # Start of UTC week
-        start_of_week_utc = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=now.weekday())
-        
-        # Convert to local (Django TZ)
+
+        start_of_week_utc = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
+            days=now.weekday()
+        )
         start_of_week_local = convert_to_local_time(start_of_week_utc)
-        
-        # For filtering DB (which expects UTC), convert back. Timestamps are utc in django
         start_of_week_filter = start_of_week_local.astimezone(timezone.utc)
-        
-        # Start of UTC month
+
         start_of_month_utc = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        
-        # Convert to local (Django TZ)
         start_of_month_local = convert_to_local_time(start_of_month_utc)
-        
-        # For filtering DB (which expects UTC), convert back. Timestamps are utc in django
         start_of_month_filter = start_of_month_local.astimezone(timezone.utc)
-        
-        # Loop through each gateway
+
         for gateway in gateways:
             try:
-                # Get active devices for this gateway
                 devices = Device.objects.filter(Gateway=gateway, is_enabled=True)
-                
                 if not devices.exists():
-                    logger.info(f"No active devices found for gateway {gateway.name}")
+                    logger.info("No active devices for gateway %s", gateway.name)
                     continue
-                
-                # Initialize aggregation data for this gateway
+
                 aggregation_data = {
                     "data_type": "Data Aggregate",
                     "date": today.isoformat(),
                     "daily": {"produced": 0.0, "consumed": 0.0},
                     "weekly": {"produced": 0.0, "consumed": 0.0},
-                    "monthly": {"produced": 0.0, "consumed": 0.0}
+                    "monthly": {"produced": 0.0, "consumed": 0.0},
                 }
-                
-                # Loop through each device in this gateway
+
                 for device in devices:
                     try:
-                        # Get energy data for this device
                         energy_data_queryset = EnergyData.objects.filter(device_name=device)
-                        
                         if not energy_data_queryset.exists():
-                            logger.info(f"No energy data found for device {device.name}")
                             continue
-                        
-                        # Get energy data for each period
+
                         daily_data = energy_data_queryset.filter(timestamp__gte=start_of_day_filter)
                         weekly_data = energy_data_queryset.filter(timestamp__gte=start_of_week_filter)
                         monthly_data = energy_data_queryset.filter(timestamp__gte=start_of_month_filter)
-                        
-                        # Sum all Energy_produced and Energy_consumed values for each period
-                        daily_prod, daily_cons = 0.0, 0.0
-                        weekly_prod, weekly_cons = 0.0, 0.0
-                        monthly_prod, monthly_cons = 0.0, 0.0
-                        
-                        # Sum daily produced and consumed
-                        for record in daily_data:
-                            data = record.data
-                            if isinstance(data, dict):
-                                energy_produced = data.get('Energy_produced', {})
-                                energy_consumed = data.get('Energy_consumed', {})
-                                if isinstance(energy_produced, dict):
-                                    daily_prod += energy_produced.get('value', 0.0)
-                                if isinstance(energy_consumed, dict):
-                                    daily_cons += energy_consumed.get('value', 0.0)
-                        
-                        # Sum weekly produced and consumed
-                        for record in weekly_data:
-                            data = record.data
-                            if isinstance(data, dict):
-                                energy_produced = data.get('Energy_produced', {})
-                                energy_consumed = data.get('Energy_consumed', {})
-                                if isinstance(energy_produced, dict):
-                                    weekly_prod += energy_produced.get('value', 0.0)
-                                if isinstance(energy_consumed, dict):
-                                    weekly_cons += energy_consumed.get('value', 0.0)
-                        
-                        # Sum monthly produced and consumed
-                        for record in monthly_data:
-                            data = record.data
-                            if isinstance(data, dict):
-                                energy_produced = data.get('Energy_produced', {})
-                                energy_consumed = data.get('Energy_consumed', {})
-                                if isinstance(energy_produced, dict):
-                                    monthly_prod += energy_produced.get('value', 0.0)
-                                if isinstance(energy_consumed, dict):
-                                    monthly_cons += energy_consumed.get('value', 0.0)
-                        
-                        # Add to aggregation totals
-                        aggregation_data["daily"]["produced"] += daily_prod
-                        aggregation_data["daily"]["consumed"] += daily_cons
-                        aggregation_data["weekly"]["produced"] += weekly_prod
-                        aggregation_data["weekly"]["consumed"] += weekly_cons
-                        aggregation_data["monthly"]["produced"] += monthly_prod
-                        aggregation_data["monthly"]["consumed"] += monthly_cons
-                        
-                        logger.info(f"Device {device.name}: Daily({daily_prod:.2f}/{daily_cons:.2f}), "
-                                  f"Weekly({weekly_prod:.2f}/{weekly_cons:.2f}), "
-                                  f"Monthly({monthly_prod:.2f}/{monthly_cons:.2f})")
-                        
+
+                        def _sum(qs):
+                            prod, cons = 0.0, 0.0
+                            for record in qs:
+                                data = record.data
+                                if not isinstance(data, dict):
+                                    continue
+                                ep = data.get("Energy_produced", {})
+                                ec = data.get("Energy_consumed", {})
+                                if isinstance(ep, dict):
+                                    prod += ep.get("value", 0.0)
+                                if isinstance(ec, dict):
+                                    cons += ec.get("value", 0.0)
+                            return prod, cons
+
+                        dp, dc = _sum(daily_data)
+                        wp, wc = _sum(weekly_data)
+                        mp, mc = _sum(monthly_data)
+
+                        aggregation_data["daily"]["produced"] += dp
+                        aggregation_data["daily"]["consumed"] += dc
+                        aggregation_data["weekly"]["produced"] += wp
+                        aggregation_data["weekly"]["consumed"] += wc
+                        aggregation_data["monthly"]["produced"] += mp
+                        aggregation_data["monthly"]["consumed"] += mc
+
                     except Exception as e:
-                        logger.error(f"Error processing device {device.name}: {e}")
+                        logger.error("Error on device %s: %s", device.name, e)
                         continue
-                
-                # Round values to 2 decimal places
-                aggregation_data["daily"]["produced"] = round(aggregation_data["daily"]["produced"], 2)
-                aggregation_data["daily"]["consumed"] = round(aggregation_data["daily"]["consumed"], 2)
-                aggregation_data["weekly"]["produced"] = round(aggregation_data["weekly"]["produced"], 2)
-                aggregation_data["weekly"]["consumed"] = round(aggregation_data["weekly"]["consumed"], 2)
-                aggregation_data["monthly"]["produced"] = round(aggregation_data["monthly"]["produced"], 2)
-                aggregation_data["monthly"]["consumed"] = round(aggregation_data["monthly"]["consumed"], 2)
-                
-                # Save aggregated data for this gateway
+
+                for period in ("daily", "weekly", "monthly"):
+                    aggregation_data[period]["produced"] = round(aggregation_data[period]["produced"], 2)
+                    aggregation_data[period]["consumed"] = round(aggregation_data[period]["consumed"], 2)
+
                 try:
-                    # Get or create aggregation device for this gateway
                     aggregation_device_name = f"Aggregate_{gateway.name}"
                     aggregation_device, created = Device.objects.get_or_create(
                         name=aggregation_device_name,
                         defaults={
-                            'Gateway': gateway,
-                            'is_enabled': False,  # Virtual device, not scanned
-                            'protocol': 'modbus',  # Default value
-                        }
+                            "Gateway": gateway,
+                            "is_enabled": False,
+                            "protocol": "modbus",
+                        },
                     )
-                    
                     if created:
-                        logger.info(f"Created aggregation device: {aggregation_device_name} for gateway {gateway.name}")
-                        # Copy users from gateway to the aggregation device
                         aggregation_device.user.set(gateway.user.all())
-                    
-                    # Create EnergyData entry for this gateway's aggregate
+
                     energy_data = EnergyData.objects.create(
                         Gateway=gateway,
                         device_name=aggregation_device,
-                        data=aggregation_data
+                        data=aggregation_data,
                     )
-                    
-                    # Set users from gateway
                     energy_data.user.set(gateway.user.all())
-                    
-                    logger.info(f"Gateway {gateway.name} - Midnight energy aggregation saved. Totals - Daily: {aggregation_data['daily']}, "
-                               f"Weekly: {aggregation_data['weekly']}, Monthly: {aggregation_data['monthly']}")
-                        
+                    logger.info("Gateway %s aggregation saved", gateway.name)
                 except Exception as e:
-                    logger.error(f"Error saving midnight aggregation for gateway {gateway.name}: {e}")
+                    logger.error("Error saving aggregation for %s: %s", gateway.name, e)
                     continue
-                
+
             except Exception as e:
-                logger.error(f"Error processing gateway {gateway.name}: {e}")
+                logger.error("Error on gateway %s: %s", gateway.name, e)
                 continue
-        
-        logger.info("Midnight energy aggregation completed for all gateways")
-        
+
+        logger.info("Midnight energy aggregation completed")
+
     except Exception as e:
-        logger.error(f"Error in midnight_energy_aggregation task: {e}")
+        logger.error("Error in midnight_energy_aggregation: %s", e)

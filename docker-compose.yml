@@ -6,12 +6,18 @@ services:
     command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
     volumes:
       - .:/app
+      - ./mosquitto/certs:/mosquitto/certs:ro   # per leggere ca.crt nel bundle
     ports:
-      #- "192.168.0.57:8000:8000"
       - "8000:8000"
+    environment:
+      - MOSQUITTO_ADMIN_URL=http://mosquitto-admin:8080
+      - MOSQUITTO_ADMIN_TOKEN=${MOSQUITTO_ADMIN_TOKEN}
+      - MOSQUITTO_CA_CRT_PATH=/mosquitto/certs/ca.crt
+      - MQTT_PUBLIC_ENDPOINT=${MQTT_PUBLIC_ENDPOINT}
     depends_on:
       - database
       - redis
+      - mosquitto-admin
 
   database:
     image: postgres:latest
@@ -29,22 +35,78 @@ services:
     command: celery -A energy_monitoring worker --loglevel=info --concurrency=10
     volumes:
       - .:/app
+    environment:
+      - MOSQUITTO_ADMIN_URL=http://mosquitto-admin:8080
+      - MOSQUITTO_ADMIN_TOKEN=${MOSQUITTO_ADMIN_TOKEN}
     depends_on:
       - web
-      - redis  # Ensure celery starts after redis
+      - redis
 
   celery-beat:
     build: .
     command: celery -A energy_monitoring beat --loglevel=info
     volumes:
       - .:/app
+    environment:
+      - MOSQUITTO_ADMIN_URL=http://mosquitto-admin:8080
+      - MOSQUITTO_ADMIN_TOKEN=${MOSQUITTO_ADMIN_TOKEN}
     depends_on:
       - redis
 
   redis:
     image: redis:alpine
     ports:
-      - "6379:6379"  # Expose Redis on port 6379
-      
+      - "6379:6379"
+
+  # --- Pipeline MQTT ---
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    container_name: device_monitoring_app-mosquitto-1
+    ports:
+      - "8883:8883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+      - ./mosquitto/certs:/mosquitto/certs:ro
+
+  mosquitto-admin:
+    build:
+      context: ./mosquitto-admin
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:rw
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # per SIGHUP al container mosquitto
+    environment:
+      - MOSQUITTO_ADMIN_TOKEN=${MOSQUITTO_ADMIN_TOKEN}
+      - MOSQUITTO_CONTAINER_NAME=device_monitoring_app-mosquitto-1
+      - MOSQUITTO_CONFIG_DIR=/mosquitto/config
+      - LOG_LEVEL=INFO
+    depends_on:
+      - mosquitto
+
+  mqtt_consumer:
+    build: .
+    command: python -m user_devices.mqtt.consumer
+    restart: unless-stopped
+    volumes:
+      - .:/app
+      - ./mosquitto/certs:/certs:ro
+    environment:
+      - DJANGO_SETTINGS_MODULE=energy_monitoring.settings
+      - MQTT_BROKER_HOST=mosquitto
+      - MQTT_BROKER_PORT=1883
+      - MQTT_TLS=0
+      - MQTT_USERNAME=${MQTT_CONSUMER_USER}
+      - MQTT_PASSWORD=${MQTT_CONSUMER_PASSWORD}
+      - MQTT_CLIENT_ID=django-consumer
+      - MQTT_LOG_LEVEL=INFO
+    depends_on:
+      - mosquitto
+      - redis
+      - database
+
 volumes:
   postgres_data:
