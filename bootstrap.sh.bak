@@ -4,19 +4,27 @@
 #
 # Crea: .env, mosquitto/config/passwd, mosquitto/config/acl,
 #       certificati TLS self-signed in mosquitto/certs/.
-#       Imposta i permessi corretti per il container Mosquitto (UID 1883).
 #
 # Uso:
 #   ./bootstrap.sh                     # interattivo, ti chiede tutto
 #   ./bootstrap.sh --non-interactive   # legge tutto da env vars (vedi sotto)
-#   ./bootstrap.sh --force             # sovrascrive .env, passwd, acl, certs
 #
 # Variabili d'ambiente accettate (sovrascrivono i prompt):
 #   POSTGRES_PASSWORD
 #   MQTT_CONSUMER_PASSWORD
-#   SERVER_VPN_IP                      # es: 10.0.100.1
+#   SERVER_VPN_IP                      # es: 10.8.0.1
+#   GATEWAY_PKS                        # CSV es: "1,2,3"
+#   GATEWAY_PASSWORDS                  # CSV nello stesso ordine es: "pwgw1,pwgw2,pwgw3"
+#                                      # (se omesso, ne genera di random)
 #
-# I gateway si aggiungono dall'admin web Django, NON da questo script.
+# Idempotenza:
+# - Se un file (.env, passwd, certs) esiste già, lo script NON lo sovrascrive
+#   senza conferma. Usa --force per ricrearli da zero.
+#
+# Cosa NON fa lo script:
+# - Non avvia docker compose (lo fai tu dopo).
+# - Non fa migrate Django (lo fai tu dopo `docker compose up -d`).
+# - Non installa pacchetti di sistema.
 
 set -euo pipefail
 
@@ -33,18 +41,8 @@ warn() { echo "${YELLOW}[warn]${RESET} $*" >&2; }
 err()  { echo "${RED}[err]${RESET} $*" >&2; }
 die()  { err "$@"; exit 1; }
 
-# Esegue chown — usa sudo se serve
-do_chown() {
-    local owner=$1
-    shift
-    if [[ $EUID -eq 0 ]]; then
-        chown "$owner" "$@"
-    else
-        sudo chown "$owner" "$@" 2>/dev/null || chown "$owner" "$@" 2>/dev/null || true
-    fi
-}
-
 prompt_secret() {
+    # prompt_secret VAR_NAME "Prompt text"
     local varname=$1
     local message=$2
     local current=${!varname:-}
@@ -71,6 +69,7 @@ prompt_secret() {
 }
 
 prompt_value() {
+    # prompt_value VAR_NAME "Prompt text" "default"
     local varname=$1
     local message=$2
     local default=${3:-}
@@ -93,6 +92,10 @@ prompt_value() {
     printf -v "$varname" '%s' "$value"
 }
 
+random_password() {
+    openssl rand -base64 24 | tr -d '/+=' | head -c 24
+}
+
 # ----- argparse -----
 INTERACTIVE=1
 FORCE=0
@@ -101,7 +104,7 @@ for arg in "$@"; do
         --non-interactive) INTERACTIVE=0 ;;
         --force) FORCE=1 ;;
         -h|--help)
-            sed -n '2,20p' "$0"
+            sed -n '2,30p' "$0"
             exit 0 ;;
         *) die "Argomento sconosciuto: $arg" ;;
     esac
@@ -115,6 +118,7 @@ cd "$(dirname "$0")"
 command -v docker >/dev/null || die "docker non installato."
 command -v openssl >/dev/null || die "openssl non installato (apt install openssl)."
 
+# Verifica che il daemon Docker risponda — se no probabilmente l'utente non è nel gruppo docker
 if ! docker info >/dev/null 2>&1; then
     die "Docker non risponde. Sei nel gruppo 'docker'? (sudo usermod -aG docker \$USER && newgrp docker)"
 fi
@@ -132,9 +136,14 @@ prompt_secret POSTGRES_PASSWORD       "Password PostgreSQL (DB del container)"
 prompt_secret MQTT_CONSUMER_PASSWORD  "Password MQTT consumer (django-consumer)"
 prompt_value  SERVER_VPN_IP           "IP del server visto dai gateway via VPN" ""
 
+# Validazione IP
 if ! [[ $SERVER_VPN_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     die "IP non valido: $SERVER_VPN_IP"
 fi
+
+# Gateway: con la nuova versione, i gateway si aggiungono dall'admin web.
+# Le credenziali MQTT sono generate automaticamente da Django via signal.
+# Quindi qui NON chiediamo nulla.
 
 # ----- 2. .env -----
 echo
@@ -186,7 +195,7 @@ if ! grep -qxF '.env' .gitignore 2>/dev/null; then
     ok "Aggiornato .gitignore"
 fi
 
-# ----- 3. Mosquitto: passwd, acl, dirs, permessi -----
+# ----- 3. Mosquitto: passwd, acl, dirs -----
 echo
 echo "=========================================="
 echo " Step 3/4: configurazione Mosquitto"
@@ -194,12 +203,7 @@ echo "=========================================="
 echo
 
 mkdir -p mosquitto/data mosquitto/log mosquitto/certs mosquitto/config
-
-# Mosquitto gira come UID 1883 dentro il container ufficiale
-# data/ e log/ devono essere scrivibili da quell'UID
-do_chown 1883:1883 mosquitto/data mosquitto/log
-chmod 755 mosquitto/data mosquitto/log
-ok "Cartelle mosquitto/* pronte (data/log assegnate a UID 1883)"
+ok "Cartelle mosquitto/* pronte"
 
 # passwd
 PASSWD_FILE=mosquitto/config/passwd
@@ -209,8 +213,8 @@ else
     rm -f "$PASSWD_FILE"
     touch "$PASSWD_FILE"
 
-    # Solo django-consumer al bootstrap. I gateway si aggiungono dall'admin web,
-    # via Django signal -> mosquitto-admin -> mosquitto_passwd.
+    # Solo django-consumer al bootstrap. I gateway vengono aggiunti dall'admin web,
+    # via Django signal → mosquitto-admin → mosquitto_passwd.
     docker run --rm \
         -v "$(pwd)/mosquitto/config:/mosquitto/config" \
         eclipse-mosquitto:2 \
@@ -218,16 +222,15 @@ else
         >/dev/null
 
     ok "Generato $PASSWD_FILE con utente django-consumer (i gateway si aggiungono dall'admin web)"
-
-    # Mosquitto deve poter leggere il passwd come UID 1883
-    do_chown 1883:1883 "$PASSWD_FILE"
+     # Mosquitto gira come UID 1883, deve poter leggere il passwd
+    sudo chown 1883:1883 "$PASSWD_FILE" 2>/dev/null || chown 1883:1883 "$PASSWD_FILE"
     chmod 0600 "$PASSWD_FILE"
-    ok "Permessi $PASSWD_FILE: 1883:1883 0600"
 fi
 
 # acl
 ACL_FILE=mosquitto/config/acl
 if [[ -f $ACL_FILE && $FORCE -eq 0 && $(wc -l < "$ACL_FILE") -gt 5 ]]; then
+    # se il file ha più di 5 righe presumo sia già personalizzato dall'utente
     warn "$ACL_FILE sembra già personalizzato, salto. Usa --force per sovrascrivere."
 else
     {
@@ -240,7 +243,6 @@ else
         echo "topic read plants/#"
         echo
     } > "$ACL_FILE"
-    chmod 0644 "$ACL_FILE"
     ok "Generato $ACL_FILE con consumer-only (gateway aggiunti dinamicamente)"
 fi
 
@@ -288,10 +290,6 @@ EOF
 
     popd >/dev/null
 
-    # Mosquitto deve poter leggere ca.crt, server.crt e server.key come UID 1883
-    do_chown 1883:1883 "$CERTS_DIR/ca.crt" "$CERTS_DIR/server.crt" "$CERTS_DIR/server.key"
-    ok "Permessi certificati: 1883:1883 (ca.key resta del tuo utente)"
-
     # Verifica SAN
     if openssl x509 -in "$CERTS_DIR/server.crt" -noout -text \
         | grep -q "IP Address:${SERVER_VPN_IP}"; then
@@ -309,9 +307,9 @@ echo "=========================================="
 echo
 echo "File generati:"
 echo "  .env                       (modo 600)"
-echo "  mosquitto/config/passwd    (UID 1883:1883, 0600)"
+echo "  mosquitto/config/passwd    ($(wc -l < $PASSWD_FILE) utenti)"
 echo "  mosquitto/config/acl"
-echo "  mosquitto/certs/ca.crt     <-- copia questo sui gateway"
+echo "  mosquitto/certs/ca.crt     ← copia questo sui gateway"
 echo "  mosquitto/certs/ca.key     (CA privata, NON copiare)"
 echo "  mosquitto/certs/server.crt"
 echo "  mosquitto/certs/server.key"
@@ -326,9 +324,9 @@ echo "  5. ${BLUE}docker compose exec web python manage.py createsuperuser${RESE
 echo "  6. ${BLUE}docker compose exec web python manage.py collectstatic --noinput${RESET}"
 echo
 echo "Aggiungere un nuovo gateway:"
-echo "  - Apri http://<server>:8000/admin/ -> User devices -> Gateways -> Add"
-echo "  - Inserisci nome e IP (l'IP e' quello via VPN del gateway)"
+echo "  - Apri http://<server>:8000/admin/ → User devices → Gateways → Add"
+echo "  - Inserisci nome e IP (l'IP è quello via VPN del gateway)"
 echo "  - Salva: la password MQTT viene generata automaticamente"
-echo "  - Apri il gateway appena creato e clicca 'Scarica bundle gateway'"
-echo "  - Copia il .tar.gz sul gateway, srotola, configura Telegraf"
+echo "  - Apri il gateway appena creato e clicca '⬇ Scarica bundle gateway'"
+echo "  - Copia il .tar.gz sul gateway, srotola, configura Telegraf (vedi README dentro il bundle)"
 echo

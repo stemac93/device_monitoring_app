@@ -14,13 +14,16 @@ services:
       - MOSQUITTO_ADMIN_TOKEN=${MOSQUITTO_ADMIN_TOKEN}
       - MOSQUITTO_CA_CRT_PATH=/mosquitto/certs/ca.crt
       - MQTT_PUBLIC_ENDPOINT=${MQTT_PUBLIC_ENDPOINT}
+      - POSTGRES_USER=${POSTGRES_USER}              # ← AGGIUNGI
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}      # ← AGGIUNGI
+      - POSTGRES_DB=${POSTGRES_DB}
     depends_on:
       - database
       - redis
       - mosquitto-admin
 
   database:
-    image: postgres:latest
+    image: postgres:16-alpine
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     environment:
@@ -38,6 +41,9 @@ services:
     environment:
       - MOSQUITTO_ADMIN_URL=http://mosquitto-admin:8080
       - MOSQUITTO_ADMIN_TOKEN=${MOSQUITTO_ADMIN_TOKEN}
+      - POSTGRES_USER=${POSTGRES_USER}              # ← AGGIUNGI
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}      # ← AGGIUNGI
+      - POSTGRES_DB=${POSTGRES_DB}
     depends_on:
       - web
       - redis
@@ -50,6 +56,9 @@ services:
     environment:
       - MOSQUITTO_ADMIN_URL=http://mosquitto-admin:8080
       - MOSQUITTO_ADMIN_TOKEN=${MOSQUITTO_ADMIN_TOKEN}
+      - POSTGRES_USER=${POSTGRES_USER}              # ← AGGIUNGI
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}      # ← AGGIUNGI
+      - POSTGRES_DB=${POSTGRES_DB}
     depends_on:
       - redis
 
@@ -103,6 +112,9 @@ services:
       - MQTT_PASSWORD=${MQTT_CONSUMER_PASSWORD}
       - MQTT_CLIENT_ID=django-consumer
       - MQTT_LOG_LEVEL=INFO
+      - POSTGRES_USER=${POSTGRES_USER}              # ← AGGIUNGI
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}      # ← AGGIUNGI
+      - POSTGRES_DB=${POSTGRES_DB}
     depends_on:
       - mosquitto
       - redis
