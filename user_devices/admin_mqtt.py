@@ -128,6 +128,14 @@ def gateway_bundle_view(request, gateway_pk: int):
     if not gateway:
         raise Http404("Gateway not found")
 
+    if gateway.protocol_mode != "mqtt":
+        messages.error(
+            request,
+            f"Gateway {gateway.pk} è in modalità {gateway.protocol_mode}. "
+            "Il bundle Telegraf è disponibile solo per gateway in modalità MQTT.",
+        )
+        return HttpResponseNotAllowed(["GET"])
+
     cred = GatewayMqttCredentials.objects.filter(gateway=gateway).first()
     if not cred:
         messages.error(

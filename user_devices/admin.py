@@ -11,8 +11,8 @@ from .forms import DeviceForm, DlmsMappingVariableForm
 from . import admin_mqtt  # noqa: F401
 
 class GatewayAdmin(admin.ModelAdmin):
-    list_display = ('ip_address', 'name', 'use_mqtt', 'mqtt_status', 'get_users')
-    list_filter = ('user','ip_address', 'use_mqtt')
+    list_display = ('ip_address', 'name', 'protocol_mode', 'mqtt_status', 'get_users')
+    list_filter = ('user', 'ip_address', 'protocol_mode')
     search_fields = ('user', 'ip_address', 'name')
     filter_horizontal = ('user',)
     exclude = ('performance', 'availability', 'production', 'consumption')
@@ -21,11 +21,25 @@ class GatewayAdmin(admin.ModelAdmin):
 
     fieldsets = (
         (None, {
-            'fields': ('name', 'ip_address', 'user', 'use_mqtt', 'performance_factor'),
+            'fields': ('name', 'ip_address', 'protocol_mode', 'user', 'performance_factor'),
+            'description': (
+                'Imposta protocol_mode in base a come il server riceve i dati: '
+                'MQTT (gateway pubblica via Telegraf), Modbus TCP diretto (server fa polling '
+                'via VPN+mbusd, modalità legacy/debug), DLMS (smart meter).'
+            ),
         }),
         ('MQTT', {
             'fields': ('mqtt_bundle_link',),
-            'description': 'Le credenziali MQTT vengono create automaticamente al primo salvataggio del gateway.',
+            'description': (
+                'Visibile solo se protocol_mode=MQTT. Le credenziali MQTT vengono create '
+                'automaticamente al primo salvataggio del gateway in modalità MQTT.'
+            ),
+            'classes': ('mqtt-section',),  # CSS hook se serve
+        }),
+        ('SSH (opzionale)', {
+            'fields': ('ssh_username', 'ssh_password'),
+            'classes': ('collapse',),
+            'description': 'Solo per modalità DLMS o per debug remoto.',
         }),
     )
 
@@ -34,6 +48,8 @@ class GatewayAdmin(admin.ModelAdmin):
     get_users.short_description = 'Users'
 
     def mqtt_status(self, obj):
+        if obj.protocol_mode != 'mqtt':
+            return format_html('<span style="color:#888">N/A</span>')
         cred = getattr(obj, 'mqtt_credentials', None)
         if not cred:
             return format_html('<span style="color:#888">—</span>')
@@ -45,13 +61,18 @@ class GatewayAdmin(admin.ModelAdmin):
     def mqtt_bundle_link(self, obj):
         if not obj.pk:
             return format_html('<em>Salva il gateway per generare le credenziali MQTT.</em>')
+        if obj.protocol_mode != 'mqtt':
+            return format_html(
+                '<em>Sezione disponibile solo quando protocol_mode = MQTT. '
+                'Cambia la modalità e salva per attivare il provisioning.</em>'
+            )
         cred = getattr(obj, 'mqtt_credentials', None)
         if not cred:
             return format_html('<em>Credenziali non ancora generate.</em>')
         url = reverse('gateway_mqtt_bundle', args=[obj.pk])
         if cred.password_revealed:
             return format_html(
-                '<em>Il bundle è già stato scaricato. Per ri-scaricarlo usa "Rigenera credenziali" '
+                '<em>Il bundle è già stato scaricato. Per ri-scaricarlo usa "Rigenera credenziali MQTT" '
                 'tra le azioni della lista Gateway.</em>'
             )
         return format_html(
@@ -80,17 +101,24 @@ class GatewayAdmin(admin.ModelAdmin):
 
     @admin.action(description="Rigenera credenziali MQTT (invalida quelle esistenti)")
     def regenerate_mqtt_credentials(self, request, queryset):
-        """Cancella le vecchie credenziali, ne genera di nuove, riscrive Mosquitto."""
+        """Cancella le vecchie credenziali, ne genera di nuove, riscrive Mosquitto.
+
+        Salta i gateway che non sono in modalità mqtt.
+        """
         from .signals import _generate_password, _gateway_username, _sync_mosquitto_state
         from .mqtt import admin_client
 
         n_ok = 0
         n_err = 0
+        n_skipped = 0
         for gw in queryset:
+            if gw.protocol_mode != 'mqtt':
+                n_skipped += 1
+                continue
+
             username = _gateway_username(gw.pk)
             new_password = _generate_password()
 
-            # Aggiorna o crea il record DB
             cred, _ = GatewayMqttCredentials.objects.update_or_create(
                 gateway=gw,
                 defaults={
@@ -124,6 +152,12 @@ class GatewayAdmin(admin.ModelAdmin):
             )
         if n_err:
             self.message_user(request, f"{n_err} con errori.", messages.WARNING)
+        if n_skipped:
+            self.message_user(
+                request,
+                f"{n_skipped} gateway saltati (protocol_mode != mqtt).",
+                messages.INFO,
+            )
 
 class MemoryMappingInlineModbus(SortableStackedInline, admin.StackedInline):
     model = ModbusMappingVariable

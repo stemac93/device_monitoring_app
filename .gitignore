@@ -6,3 +6,21 @@ docs/images/*
 .coverage
 htmlconv
 htmlconv/*
+# Bootstrap-generated secrets and runtime files
+.env
+mosquitto/config/passwd
+mosquitto/certs/*.key
+mosquitto/certs/*.crt
+mosquitto/certs/*.srl
+mosquitto/data/
+mosquitto/log/
+
+# Python compiled
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Celery beat scheduler state
+celerybeat-schedule
+celerybeat-schedule.db
+celerybeat.pid

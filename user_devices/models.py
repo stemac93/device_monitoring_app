@@ -2,6 +2,18 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 
+
+# Modalità di trasporto/lettura dati per un Gateway. Il task Celery
+# `scan_and_read_devices` instrada in base a questo campo: cache MQTT
+# popolata da Telegraf, polling Modbus TCP diretto via mbusd in VPN
+# (vecchio comportamento, utile per debug), oppure polling DLMS.
+GATEWAY_PROTOCOL_MODES = (
+    ("mqtt", "MQTT (gateway pubblica via Telegraf)"),
+    ("modbus_direct", "Modbus TCP diretto (server fa polling via mbusd in VPN)"),
+    ("dlms", "DLMS (smart meter, polling diretto)"),
+)
+
+
 # Il device ha anche un ip associato
 class Gateway(models.Model):
     user = models.ManyToManyField(User, related_name='user_gateway')
@@ -10,12 +22,15 @@ class Gateway(models.Model):
     ssh_password = models.CharField(max_length=100, default='ssh_psw')  # SSH password
     ip_address = models.CharField(max_length=50)
     performance_factor = models.FloatField(default=0, help_text="Performance factor of the plant")
-    use_mqtt = models.BooleanField(
-        default=False,
+    protocol_mode = models.CharField(
+        max_length=20,
+        choices=GATEWAY_PROTOCOL_MODES,
+        default="mqtt",
         help_text=(
-            "Se True, i device Modbus di questo gateway vengono letti dalla "
-            "cache MQTT (Telegraf pubblica su MQTT). Se False, polling Modbus "
-            "TCP diretto come prima della migrazione."
+            "MQTT: il gateway pubblica via Telegraf, server consuma. "
+            "Modbus TCP diretto: server fa polling Modbus TCP via mbusd in VPN "
+            "(modalità legacy, utile per debug e per gateway non ancora migrati). "
+            "DLMS: smart meter via DLMS/COSEM."
         ),
     )
 
