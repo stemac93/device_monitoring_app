@@ -25,7 +25,7 @@ class UserDevicesTestCase(TestCase):
             Gateway=self.gateway,
             slave_id=1,
             start_address="0x0280",
-            bytes_count=80,
+            word_count=40,
             port=502
         )
 

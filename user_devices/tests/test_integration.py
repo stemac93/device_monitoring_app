@@ -4,7 +4,7 @@ from pymodbus.client import ModbusTcpClient
 from django.contrib.auth.models import User
 from unittest.mock import patch, Mock
 from user_devices.models import (
-    Gateway, Device, DeviceData, MappingVariable, 
+    Gateway, Device, DeviceData, ModbusMappingVariable,
     ComputedVariable, Button
 )
 from user_devices.tasks import scan_and_read_devices, check_all_devices
@@ -12,11 +12,25 @@ from user_devices.functions import read_modbus_registers, map_variables, compute
 from datetime import datetime, timezone
 import json, pdb
 
-#TODO: Funzione scan_and_read_devices poco testabile
-class DeviceDataFlowIntegrationTest(TransactionTestCase):
-    """Tests the entire data flow from device reading to data storage"""
-    
+
+class MockMosquittoAdminMixin:
+    """Nei TransactionTestCase le callback on_commit dei signal girano davvero:
+    senza mock, creare un Gateway chiamerebbe il mosquitto-admin reale (nel
+    container web il token è impostato) riscrivendo l'ACL di produzione."""
+
     def setUp(self):
+        patcher = patch("user_devices.signals.admin_client")
+        self.mock_admin_client = patcher.start()
+        self.addCleanup(patcher.stop)
+        super().setUp()
+
+
+#TODO: Funzione scan_and_read_devices poco testabile
+class DeviceDataFlowIntegrationTest(MockMosquittoAdminMixin, TransactionTestCase):
+    """Tests the entire data flow from device reading to data storage"""
+
+    def setUp(self):
+        super().setUp()
         # Create test gateway
         self.gateway = Gateway.objects.create(
             name="Test Gateway",
@@ -31,13 +45,14 @@ class DeviceDataFlowIntegrationTest(TransactionTestCase):
             Gateway=self.gateway,
             slave_id=1,
             start_address="0x0280",
-            bytes_count=24,
-            port=502
+            word_count=12,
+            port=502,
+            is_enabled=True,  # i device disabilitati vengono saltati dal task
         )
         #self.device.user.add(self.user)
-        
+
         # Create mapping variables
-        self.voltage_var = MappingVariable.objects.create(
+        self.voltage_var = ModbusMappingVariable.objects.create(
             device=self.device,
             var_name="Voltage",
             address="0x0280",
@@ -45,7 +60,7 @@ class DeviceDataFlowIntegrationTest(TransactionTestCase):
             conversion_factor="0.1"
         )
         
-        self.current_var = MappingVariable.objects.create(
+        self.current_var = ModbusMappingVariable.objects.create(
             device=self.device,
             var_name="Current",
             address="0x0282",
@@ -119,7 +134,7 @@ class UserPermissionPropagationTest(TestCase):
             Gateway=self.gateway,
             slave_id=1,
             start_address="0x0280",
-            bytes_count=10
+            word_count=5
         )
         
         # Create button
@@ -176,10 +191,11 @@ class UserPermissionPropagationTest(TestCase):
         self.assertIn(self.user2, self.device.user.all())
         self.assertIn(self.user2, self.device_data.user.all())
 
-class TaskExecutionTest(TransactionTestCase):
+class TaskExecutionTest(MockMosquittoAdminMixin, TransactionTestCase):
     """Tests the Celery tasks execution"""
-    
+
     def setUp(self):
+        super().setUp()
         # Create test gateway
         self.gateway = Gateway.objects.create(
             name="Test Gateway",
