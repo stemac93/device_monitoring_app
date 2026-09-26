@@ -169,6 +169,9 @@ def _process_modbus_from_cache(device):
     )
 
     mapped_values = functions.map_variables(base_values, device)
+    if not mapped_values:
+        logger.warning("No valid variable for device %s: nothing stored", device.name)
+        return None
     computed_values = functions.compute_variables(mapped_values, device)
     return {**mapped_values, **computed_values}
 
@@ -209,6 +212,9 @@ def _process_modbus_from_tcp(device, gateway, client):
         return client, None
 
     mapped_values = functions.map_variables(base_values, device)
+    if not mapped_values:
+        logger.warning("No valid variable for device %s: nothing stored", device.name)
+        return client, None
     computed_values = functions.compute_variables(mapped_values, device)
     return client, {**mapped_values, **computed_values}
 

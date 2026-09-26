@@ -192,6 +192,8 @@ def map_variables(base_values, device):
             
             # Applico il conversion factor
             converted_value = convert_value(raw_value, mapping.conversion_factor)
+            if converted_value is None:
+                raise Exception(f"Invalid conversion factor {mapping.conversion_factor!r} for variable {mapping.var_name}")
 
             # Salvo il valore nel dizionario
             sanitized_name = sanitize_variable_name(mapping.var_name)
@@ -201,12 +203,9 @@ def map_variables(base_values, device):
             }
 
         except Exception as e:
-            sanitized_name = sanitize_variable_name(mapping.var_name)
-            mapped_values[sanitized_name] = {
-                "value": 0,
-                "unit": mapping.unit if hasattr(mapping, "unit") else "N/A"
-            }
-            logger.info(f"Error while mapping the values: {e}")
+            # La variabile non si salva: uno 0 verrebbe preso per una lettura
+            # reale (disponibilità, integrale di energia, grafici)
+            logger.warning(f"Variable {mapping.var_name} skipped: {e}")
             continue
     json_result = json.dumps(mapped_values, indent=4)
     logger.info(f"Mapped JSON: {json_result}")
@@ -246,11 +245,9 @@ def compute_variables(mapped_values, device):
             }
             logger.info(computed_vars)
         except Exception as e:
-            results[sanitize_variable_name(var.var_name)] = {
-                "value": 0,
-                "unit": var.unit if hasattr(var, "unit") else "N/A"
-            }
-            logger.info(f"Error while mapping the values: {e}")
+            # Formula non calcolabile (variabile mancante, divisione per zero...):
+            # meglio nessun valore che uno 0 finto
+            logger.warning(f"Computed variable {var.var_name} skipped: {e}")
             continue
 
     # Convert to JSON

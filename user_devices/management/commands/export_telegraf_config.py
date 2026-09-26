@@ -17,7 +17,6 @@ Segreti (user/pass MQTT, path CA) restano fuori dal DB: vengono letti da env
 all'avvio di Telegraf sul gateway, vedi gateway_setup/telegraf.env.example.
 """
 
-import sys
 from django.core.management.base import BaseCommand, CommandError
 
 from user_devices.models import Gateway, Device
@@ -116,6 +115,9 @@ def _render_header(gateway: Gateway, interval: str) -> str:
 # all'avvio.
 # -----------------------------------------------------------------------------
 [[outputs.mqtt]]
+  # Solo le metriche modbus: le altre (es. inputs.internal) non hanno il tag
+  # device_id e finirebbero su plants/<gw>/devices//raw
+  namepass = ["modbus"]
   servers = ["${{MQTT_SERVER}}"]
   protocol = "5"
   keep_alive = 30
@@ -200,4 +202,6 @@ class Command(BaseCommand):
                 )
             )
         else:
-            sys.stdout.write(config)
+            # self.stdout: permette call_command(..., stdout=buffer) senza
+            # sostituire sys.stdout per tutto il processo
+            self.stdout.write(config, ending="")

@@ -18,15 +18,22 @@ def round_to_2_decimals(value):
 
 # Helper to convert raw value to float
 def convert_value(raw_value, conversion_factor):
+    """Ritorna il valore convertito, o None se il fattore non è valido (un
+    fattore sbagliato non deve produrre uno 0 che sembra una lettura reale)."""
     try:
         logger.info(f"Conv factor from mapping: {conversion_factor}")
-        if conversion_factor.__contains__("/"):
-            conversion_factor = float(Fraction(conversion_factor))
+        if conversion_factor is None or str(conversion_factor).strip() == "":
+            conversion_factor = 1.0  # campo non compilato: nessuna conversione
         else:
-            conversion_factor = float(conversion_factor)
+            # Accetta anche la virgola decimale ("0,1")
+            conversion_factor = str(conversion_factor).strip().replace(",", ".")
+            if "/" in conversion_factor:
+                conversion_factor = float(Fraction(conversion_factor))
+            else:
+                conversion_factor = float(conversion_factor)
     except (ValueError, TypeError, ZeroDivisionError):
-        logger.warning(f"Invalid conversion factor: {conversion_factor}. Defaulting to 0.")
-        conversion_factor = 0.0
+        logger.warning(f"Invalid conversion factor: {conversion_factor}")
+        return None
     logger.info(f"Conversion factor: {conversion_factor}")
     result = raw_value * conversion_factor
     return round_to_2_decimals(result)

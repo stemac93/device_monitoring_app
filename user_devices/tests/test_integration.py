@@ -94,7 +94,8 @@ class DeviceDataFlowIntegrationTest(MockMosquittoAdminMixin, TransactionTestCase
         mock_client.connect.return_value = True
         mock_response = Mock()
         mock_response.isError.return_value = False
-        mock_response.registers = [1000, 200]  # Example register values
+        # 12 registri da 0x0280: Voltage a 0x0280, Current a 0x0282
+        mock_response.registers = [1000, 0, 200] + [0] * 9
         mock_client.read_input_registers.return_value = mock_response
         mock_modbus_client.return_value = mock_client
         

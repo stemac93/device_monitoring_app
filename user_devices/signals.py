@@ -16,7 +16,7 @@ from django.db import transaction
 from django.db.models.signals import m2m_changed, post_save, post_delete
 from django.dispatch import receiver
 
-from .models import Gateway, Device, DeviceData, GatewayMqttCredentials
+from .models import Gateway, Device, DeviceData, EnergyData, GatewayData, GatewayMqttCredentials
 from .mqtt import admin_client
 
 logger = logging.getLogger(__name__)
@@ -26,14 +26,71 @@ logger = logging.getLogger(__name__)
 # Signal originale: propagazione utenti m2m (preservato dal codice esistente)
 # ---------------------------------------------------------------------------
 
+# Modelli la cui visibilità per utente deriva da Gateway.user (tutti hanno la
+# FK `Gateway` e il M2M `user`)
+USER_SCOPED_MODELS = (Device, DeviceData, EnergyData, GatewayData)
+_BULK_BATCH = 5000
+
+
+def _add_users(gateway_ids, user_ids):
+    """Aggiunge gli utenti a tutte le righe dei gateway, lavorando direttamente
+    sulla tabella di relazione (una riga per volta sarebbe N+1 su milioni di dati)."""
+    if not gateway_ids or not user_ids:
+        return
+    for model in USER_SCOPED_MODELS:
+        through = model.user.through
+        fk = f"{model._meta.model_name}_id"
+        batch = []
+        obj_ids = model.objects.filter(Gateway_id__in=gateway_ids).values_list("pk", flat=True)
+        for obj_id in obj_ids.iterator(chunk_size=_BULK_BATCH):
+            batch.extend(through(**{fk: obj_id, "user_id": uid}) for uid in user_ids)
+            if len(batch) >= _BULK_BATCH:
+                through.objects.bulk_create(batch, ignore_conflicts=True)
+                batch = []
+        if batch:
+            through.objects.bulk_create(batch, ignore_conflicts=True)
+
+
+def _remove_users(gateway_ids, user_ids=None):
+    """Toglie gli utenti (tutti se user_ids è None) dalle righe dei gateway."""
+    if not gateway_ids:
+        return
+    for model in USER_SCOPED_MODELS:
+        rows = model.user.through.objects.filter(
+            **{f"{model._meta.model_name}__Gateway_id__in": gateway_ids}
+        )
+        if user_ids is not None:
+            rows = rows.filter(user_id__in=user_ids)
+        rows.delete()
+
+
 @receiver(m2m_changed, sender=Gateway.user.through)
-def sync_users_to_devices_and_data(sender, instance, action, **kwargs):
-    if action in ["post_add", "post_remove", "post_clear"]:
-        users = instance.user.all()
-        for device in instance.devices.all():
-            device.user.set(users)
-            for data in device.device_data.all():
-                data.user.set(users)
+def sync_users_to_devices_and_data(sender, instance, action, reverse, pk_set, **kwargs):
+    # reverse=True: modifica dal lato utente (user.user_gateway.add(gw))
+    if reverse:
+        gateway_ids, user_ids = list(pk_set or []), [instance.pk]
+    else:
+        gateway_ids, user_ids = [instance.pk], list(pk_set or [])
+
+    if action == "post_add":
+        _add_users(gateway_ids, user_ids)
+    elif action == "post_remove":
+        _remove_users(gateway_ids, user_ids)
+    elif action == "pre_clear":
+        # pk_set è None nel clear: i gateway coinvolti vanno letti prima
+        if reverse:
+            _remove_users(list(instance.user_gateway.values_list("pk", flat=True)), [instance.pk])
+        else:
+            _remove_users([instance.pk])
+
+
+@receiver(post_save, sender=Device)
+def device_inherits_gateway_users(sender, instance, raw, update_fields=None, **kwargs):
+    """Un device nuovo o spostato vede gli utenti del suo gateway."""
+    # update_fields: salvataggi parziali (es. availability dal task) non toccano il gateway
+    if raw or update_fields is not None or instance.Gateway_id is None:
+        return
+    instance.user.set(instance.Gateway.user.all())
 
 
 # ---------------------------------------------------------------------------

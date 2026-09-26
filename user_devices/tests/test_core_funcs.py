@@ -227,13 +227,10 @@ class TestMapVariables(TestCase):
         
         result = map_variables(base_values, device)
         
-        # For invalid conversion factor, should default to 0
-        self.assertEqual(result["Invalid"]["value"], 0)
-        self.assertEqual(result["Invalid"]["unit"], "X")
-        
-        # For missing address, should default to 0
-        self.assertEqual(result["Missing"]["value"], 0)
-        self.assertEqual(result["Missing"]["unit"], "Y")
+        # Fattore non valido o registro mancante: la variabile non viene salvata
+        # (uno 0 sembrerebbe una lettura reale)
+        self.assertNotIn("Invalid", result)
+        self.assertNotIn("Missing", result)
 
     @patch('user_devices.functions.logger')
     @patch('user_devices.functions.ModbusMappingVariable.objects.filter')
@@ -454,9 +451,8 @@ class TestComputeVariables(TestCase):
         except Exception as e:
             print(e)
         print(f"Result: {result}")
-        # Should default to 0 when computation fails
-        self.assertEqual(result["InvalidPower"]["value"], 0)
-        self.assertEqual(result["InvalidPower"]["unit"], "W")
+        # Formula non calcolabile: nessun valore (non uno 0 finto)
+        self.assertNotIn("InvalidPower", result)
 
 class TestComputeEnergy(TestCase):
     """compute_energy integra la potenza in kWh partendo dai contatori

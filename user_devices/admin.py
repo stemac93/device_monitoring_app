@@ -13,7 +13,7 @@ from . import admin_mqtt  # noqa: F401
 class GatewayAdmin(admin.ModelAdmin):
     list_display = ('ip_address', 'name', 'use_mqtt', 'mqtt_status', 'get_users')
     list_filter = ('user','ip_address', 'use_mqtt')
-    search_fields = ('user', 'ip_address', 'name')
+    search_fields = ('user__username', 'ip_address', 'name')
     filter_horizontal = ('user',)
     exclude = ('performance', 'availability', 'production', 'consumption')
     readonly_fields = ('mqtt_bundle_link',)
@@ -54,29 +54,19 @@ class GatewayAdmin(admin.ModelAdmin):
                 '<em>Il bundle è già stato scaricato. Per ri-scaricarlo usa "Rigenera credenziali" '
                 'tra le azioni della lista Gateway.</em>'
             )
+        # POST dentro il form di modifica (che ha già il csrf token): un link GET
+        # potrebbe essere seguito da prefetch/crawler e consumerebbe la password
         return format_html(
-            '<a class="button" style="background:#28a745;color:white;padding:6px 12px;'
-            'border-radius:4px;text-decoration:none;" href="{}">⬇ Scarica bundle gateway</a>'
+            '<button type="submit" class="button" formaction="{}" formmethod="post" formnovalidate '
+            'style="background:#28a745;color:white;padding:6px 12px;border-radius:4px;">'
+            '⬇ Scarica bundle gateway</button>'
             '<br><small>Una volta scaricato, la password non sarà più recuperabile.</small>',
             url,
         )
     mqtt_bundle_link.short_description = 'Bundle Telegraf'
 
-    def save_model(self, request, obj, form, change):
-        super().save_model(request, obj, form, change)
-
-        # Sync users to each device under the gateway
-        for device in obj.devices.all():
-            for user in obj.user.all():
-                device.user.add(user)
-
-                # Also sync users to device data
-                for data in device.device_data.all():
-                    data.user.add(user)
-
-                # Also sync users to energy data
-                for energy_data in device.energy_data.all():
-                    energy_data.user.add(user)
+    # La propagazione degli utenti a device e dati è fatta dal signal m2m_changed
+    # (signals.sync_users_to_devices_and_data), scatenato da save_related.
 
     @admin.action(description="Rigenera credenziali MQTT (invalida quelle esistenti)")
     def regenerate_mqtt_credentials(self, request, queryset):
@@ -161,7 +151,7 @@ class DeviceAdmin(SortableAdminBase, admin.ModelAdmin):
     form = DeviceForm
     list_display = ('name','is_enabled', 'get_users','Gateway__name', 'Gateway__ip_address', 'protocol')
     list_filter = ('user','Gateway', 'is_enabled')
-    search_fields = ('user','Gateway')
+    search_fields = ('name', 'user__username', 'Gateway__name', 'Gateway__ip_address')
     #inlines = [MemoryMappingInlineModbus, ComputedVariableInline]
     actions = ['clone_device']
     readonly_fields = ('get_users',)
@@ -214,7 +204,7 @@ class DeviceAdmin(SortableAdminBase, admin.ModelAdmin):
                 is_enabled=False,  # Start disabled for safety
                 slave_id=device.slave_id,
                 start_address=device.start_address,
-                bytes_count=device.bytes_count,
+                word_count=device.word_count,
                 port=device.port,
                 availability=device.availability,
                 show_energy=device.show_energy,
@@ -244,7 +234,8 @@ class DeviceAdmin(SortableAdminBase, admin.ModelAdmin):
                     address=modbus_var.address,
                     conversion_factor=modbus_var.conversion_factor,
                     bit_length=modbus_var.bit_length,
-                    is_signed=modbus_var.is_signed
+                    is_signed=modbus_var.is_signed,
+                    endianness=modbus_var.endianness,
                 )
             
             # Clone DlmsMappingVariable instances
@@ -300,7 +291,7 @@ class GatewayDataAdmin(admin.ModelAdmin):
 
 class DeviceDataAdmin(admin.ModelAdmin):
     list_display = ('device_name', 'timestamp','get_users', 'Gateway__ip_address')
-    search_fields = ('user__username', 'Gateway__ip_address', 'name__device_name')
+    search_fields = ('user__username', 'Gateway__ip_address', 'device_name__name')
     list_filter = ('Gateway__ip_address', 'device_name', 'timestamp')
     readonly_fields = ('get_users', 'device_name', 'Gateway', 'timestamp','data')
     fieldsets = (
