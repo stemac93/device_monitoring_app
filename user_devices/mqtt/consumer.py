@@ -53,6 +53,9 @@ import paho.mqtt.client as mqtt
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "energy_monitoring.settings")
 django.setup()
 
+from django.db import close_old_connections  # noqa: E402
+
+from user_devices.models import Device  # noqa: E402
 from user_devices.mqtt.cache import put_raw  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -127,11 +130,21 @@ def _handle_raw(gateway_topic_id: str, device_topic_id: str, payload: bytes) -> 
     fields = data.get("fields") or {}
     tags = data.get("tags") or {}
 
-    # device_id dai tag è la source of truth (topic può essere mascherato da wildcard)
+    # Gateway e device vengono dal topic: l'ACL garantisce che gw-N pubblichi
+    # solo su plants/N/#. I tag del payload sono scelti dal gateway e non
+    # vanno usati, altrimenti gw-1 potrebbe scrivere dati di device altrui.
     try:
-        device_pk = int(tags.get("device_id", device_topic_id))
+        gateway_pk = int(gateway_topic_id)
+        device_pk = int(device_topic_id)
     except (TypeError, ValueError):
-        logger.warning("Cannot parse device_id tag in message: %s", tags)
+        logger.warning("Invalid topic ids: plants/%s/devices/%s/raw", gateway_topic_id, device_topic_id)
+        return
+    if str(tags.get("device_id", device_pk)) != str(device_pk):
+        logger.warning("device_id tag %s differs from topic device %s: using topic", tags.get("device_id"), device_pk)
+
+    close_old_connections()  # processo long-running: evita connessioni DB scadute
+    if not Device.objects.filter(pk=device_pk, Gateway_id=gateway_pk).exists():
+        logger.warning("Device %s does not belong to gateway %s: message ignored", device_pk, gateway_pk)
         return
 
     base_values = {}

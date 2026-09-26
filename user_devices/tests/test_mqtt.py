@@ -35,6 +35,13 @@ class ParseRegisterFieldTests(TestCase):
 class HandleRawTests(TestCase):
     """Verifica che un messaggio MQTT ben formato popoli la cache."""
 
+    def setUp(self):
+        # Di default il device del topic appartiene al gateway del topic
+        patcher = patch("user_devices.mqtt.consumer.Device")
+        self.mock_device = patcher.start()
+        self.mock_device.objects.filter.return_value.exists.return_value = True
+        self.addCleanup(patcher.stop)
+
     @patch("user_devices.mqtt.consumer.put_raw")
     def test_valid_message_caches_registers(self, mock_put):
         from user_devices.mqtt.consumer import _handle_raw
@@ -75,8 +82,8 @@ class HandleRawTests(TestCase):
         mock_put.assert_not_called()
 
     @patch("user_devices.mqtt.consumer.put_raw")
-    def test_device_id_from_tag_wins_over_topic(self, mock_put):
-        """Se topic e tag divergono (improbabile ma possibile), vince il tag."""
+    def test_device_id_from_topic_wins_over_tag(self, mock_put):
+        """Il tag è scelto dal gateway: vince il topic (vincolato dall'ACL)."""
         from user_devices.mqtt.consumer import _handle_raw
 
         payload = json.dumps(
@@ -88,7 +95,19 @@ class HandleRawTests(TestCase):
 
         _handle_raw("1", "42", payload)
         args, _ = mock_put.call_args
-        self.assertEqual(args[0], 99)
+        self.assertEqual(args[0], 42)
+        self.mock_device.objects.filter.assert_called_with(pk=42, Gateway_id=1)
+
+    @patch("user_devices.mqtt.consumer.put_raw")
+    def test_device_of_other_gateway_ignored(self, mock_put):
+        """gw-1 non può popolare la cache di un device di un altro gateway."""
+        from user_devices.mqtt.consumer import _handle_raw
+
+        self.mock_device.objects.filter.return_value.exists.return_value = False
+        payload = json.dumps({"fields": {"reg_0x0000": 1}}).encode("utf-8")
+
+        _handle_raw("1", "57", payload)
+        mock_put.assert_not_called()
 
     @patch("user_devices.mqtt.consumer.put_raw")
     def test_non_register_fields_filtered(self, mock_put):

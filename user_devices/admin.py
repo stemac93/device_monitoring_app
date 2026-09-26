@@ -341,8 +341,10 @@ class ButtonAdmin(admin.ModelAdmin):
         Display a custom toggle button in the admin interface.
         """
         url = reverse('admin:toggle_button_action', args=[obj.pk])
+        # POST dentro il form del changelist (che contiene già il csrf token):
+        # un link GET azionerebbe il relè senza protezione CSRF
         return format_html(
-            '<a class="button" href="{}">Toggle</a>',
+            '<button type="submit" class="button" formaction="{}" formmethod="post">Toggle</button>',
             url
         )
 
@@ -369,7 +371,11 @@ class ButtonAdmin(admin.ModelAdmin):
         """
         Handle the toggle button action.
         """
-        button = Button.objects.get(pk=pk)
+        from django.http import HttpResponseNotAllowed
+        from django.shortcuts import get_object_or_404
+        if request.method != 'POST':
+            return HttpResponseNotAllowed(['POST'])
+        button = get_object_or_404(Button, pk=pk)
         status = 'on' if not button.is_active else 'off'
 
         # Call the SSH function

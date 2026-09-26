@@ -12,6 +12,9 @@ import json
 import logging 
 from datetime import datetime, timedelta
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
 import csv
 from io import StringIO
 
@@ -107,7 +110,7 @@ def home_view(request):
         last_data = DeviceData.objects.filter(device_name=var.device).order_by('-timestamp').first()
         logger.info(f"Last data: {last_data}")
         logger.info(f"Var name: {var.var_name}")
-        logger.info(f"Last data data: {last_data.data}")
+        logger.info(f"Last data data: {last_data.data if last_data else None}")
         sanitized_name = sanitize_variable_name(var.var_name)
         if last_data and sanitized_name in last_data.data:
             raw = last_data.data.get(sanitized_name)
@@ -259,6 +262,7 @@ def home_view(request):
     })
 
 
+@login_required
 def device_detail_view(request, device_name):
     # Get user's gateways first
     user_gateways = Gateway.objects.filter(user=request.user)
@@ -416,8 +420,11 @@ def device_detail_view(request, device_name):
 
     return render(request, 'device_detail.html', context)
 
+@login_required
+@require_POST  # con GET il CSRF non viene verificato: un <img src=...> azionerebbe il relè
 def toggle_button_status(request, button_id):
-    button = get_object_or_404(Button, id=button_id, Gateway__user=request.user)
+    # Solo i bottoni che l'admin ha reso visibili all'utente
+    button = get_object_or_404(Button, id=button_id, Gateway__user=request.user, show_in_user_page=True)
     status = 'on' if not button.is_active else 'off'
 
     # Use the utility function to toggle the button's state
@@ -428,8 +435,11 @@ def toggle_button_status(request, button_id):
         messages.success(request, f"Button '{button.label}' updated successfully.")
     else:
         messages.error(request, f"Error updating button: {response}")
-    # Redirect back to the referring page
-    return redirect(request.META.get('HTTP_REFERER', '/'))
+    # Redirect back to the referring page, solo se è di questo sito (no open redirect)
+    referer = request.META.get('HTTP_REFERER', '')
+    if url_has_allowed_host_and_scheme(referer, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        return redirect(referer)
+    return redirect('home')
 
 def download_data(request):
     """Handle data download requests with date range validation"""
