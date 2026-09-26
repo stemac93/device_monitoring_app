@@ -136,6 +136,8 @@ LOGIN_URL = 'login'  # Redirect here if a user is not authenticated
 LOGIN_REDIRECT_URL = 'home'  # Redirect here after successful login
 LOGOUT_REDIRECT_URL = 'login'  # Redirect here after logout
 
+# Crontab (es. midnight_energy_aggregation alle 00:05) in ora locale, non UTC
+CELERY_TIMEZONE = TIME_ZONE
 CELERY_BROKER_URL = "redis://redis:6379/0"
 CELERY_RESULT_BACKEND = "redis://redis:6379/0"
 #CELERY_BROKER_URL = 'redis://localhost:6379/0'

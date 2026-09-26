@@ -9,7 +9,7 @@ from redis.lock import Lock
 from .models import Device, Gateway, DeviceData, EnergyData
 import user_devices.functions as functions
 from .mqtt.cache import get_raw, get_raw_age
-from .helper_funcs import convert_to_local_time
+from .helper_funcs import convert_to_local_time, local_period_starts
 
 logger = logging.getLogger(__name__)
 
@@ -239,28 +239,17 @@ def midnight_energy_aggregation():
 
     logger.info("Starting midnight energy aggregation...")
     try:
-        now = datetime.now(timezone.utc)
-        now_local = convert_to_local_time(now)
-        today = now_local.date()
+        # Gira alle 00:05 locali (CELERY_TIMEZONE) e aggrega il giorno appena
+        # concluso: i contatori Energy_daily/weekly/monthly_* dell'ultimo record
+        # di ieri sono già i totali di ieri, della settimana e del mese a ieri.
+        start_of_today = local_period_starts()[0]
+        start_of_yesterday = local_period_starts(start_of_today - timedelta(hours=12))[0]
+        yesterday = start_of_yesterday.date()
 
         gateways = Gateway.objects.all()
         if not gateways.exists():
             logger.info("No gateways found for energy aggregation")
             return
-
-        start_of_day_utc = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        start_of_day_local = convert_to_local_time(start_of_day_utc)
-        start_of_day_filter = start_of_day_local.astimezone(timezone.utc)
-
-        start_of_week_utc = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
-            days=now.weekday()
-        )
-        start_of_week_local = convert_to_local_time(start_of_week_utc)
-        start_of_week_filter = start_of_week_local.astimezone(timezone.utc)
-
-        start_of_month_utc = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        start_of_month_local = convert_to_local_time(start_of_month_utc)
-        start_of_month_filter = start_of_month_local.astimezone(timezone.utc)
 
         for gateway in gateways:
             try:
@@ -271,7 +260,7 @@ def midnight_energy_aggregation():
 
                 aggregation_data = {
                     "data_type": "Data Aggregate",
-                    "date": today.isoformat(),
+                    "date": yesterday.isoformat(),
                     "daily": {"produced": 0.0, "consumed": 0.0},
                     "weekly": {"produced": 0.0, "consumed": 0.0},
                     "monthly": {"produced": 0.0, "consumed": 0.0},
@@ -279,38 +268,23 @@ def midnight_energy_aggregation():
 
                 for device in devices:
                     try:
-                        energy_data_queryset = EnergyData.objects.filter(device_name=device)
-                        if not energy_data_queryset.exists():
+                        last_record = (
+                            EnergyData.objects.filter(
+                                device_name=device,
+                                timestamp__gte=start_of_yesterday,
+                                timestamp__lt=start_of_today,
+                            )
+                            .order_by("-timestamp")
+                            .first()
+                        )
+                        if last_record is None or not isinstance(last_record.data, dict):
                             continue
 
-                        daily_data = energy_data_queryset.filter(timestamp__gte=start_of_day_filter)
-                        weekly_data = energy_data_queryset.filter(timestamp__gte=start_of_week_filter)
-                        monthly_data = energy_data_queryset.filter(timestamp__gte=start_of_month_filter)
-
-                        def _sum(qs):
-                            prod, cons = 0.0, 0.0
-                            for record in qs:
-                                data = record.data
-                                if not isinstance(data, dict):
-                                    continue
-                                ep = data.get("Energy_produced", {})
-                                ec = data.get("Energy_consumed", {})
-                                if isinstance(ep, dict):
-                                    prod += ep.get("value", 0.0)
-                                if isinstance(ec, dict):
-                                    cons += ec.get("value", 0.0)
-                            return prod, cons
-
-                        dp, dc = _sum(daily_data)
-                        wp, wc = _sum(weekly_data)
-                        mp, mc = _sum(monthly_data)
-
-                        aggregation_data["daily"]["produced"] += dp
-                        aggregation_data["daily"]["consumed"] += dc
-                        aggregation_data["weekly"]["produced"] += wp
-                        aggregation_data["weekly"]["consumed"] += wc
-                        aggregation_data["monthly"]["produced"] += mp
-                        aggregation_data["monthly"]["consumed"] += mc
+                        for period in ("daily", "weekly", "monthly"):
+                            for kind in ("produced", "consumed"):
+                                value = last_record.data.get(f"Energy_{period}_{kind}")
+                                if isinstance(value, dict):
+                                    aggregation_data[period][kind] += value.get("value", 0.0)
 
                     except Exception as e:
                         logger.error("Error on device %s: %s", device.name, e)

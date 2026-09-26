@@ -11,13 +11,15 @@ from decimal import Decimal
 from django.db.models import Sum
 from django.db.models.expressions import RawSQL
 from fractions import Fraction
-from .helper_funcs import sanitize_variable_name, convert_value, convert_to_local_time, round_to_2_decimals
+from .helper_funcs import sanitize_variable_name, convert_value, convert_to_local_time, round_to_2_decimals, local_period_starts
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
 MAX_WORDS_PER_READ = 12
 TIMEOUT = 5                 # Timeout per la connessione
+# Oltre questo intervallo tra due letture l'energia non viene integrata
+MAX_INTEGRATION_GAP_SECONDS = 10 * 60
 
 """
 Probes a DLMS device to check if it is reachable.
@@ -87,8 +89,7 @@ def read_dlms_values(device):
                 logger.info(f"Data: {data}")
 
                 # Aggregate the values and the timestamps for each column_idx
-                reading = []
-                mapped_values = {}
+                # (mapped_values accumula tutti gli OBIS: non va azzerato qui)
                 for reading in data['results']:
                     sanitized_name = sanitize_variable_name(reading['varname'])
                     mapped_values[sanitized_name] = {
@@ -227,21 +228,25 @@ def compute_variables(mapped_values, device):
             values = {key: value_data["value"] for key, value_data in mapped_values.items()}
             logger.info(f"Worked data: {values}")
 
-            sanitized_formula = sanitize_variable_name(var.formula)
-            formula = sympify(a=sanitized_formula)
+            # La formula NON va sanitizzata: trasformerebbe anche operatori e
+            # spazi ("Pin - Pout" -> "Pin___Pout"). Nelle formule i nomi delle
+            # variabili vanno scritti già con "_" al posto di spazi e "-".
+            formula = sympify(a=var.formula)
             logger.info(f"formula: {formula}")
 
             computed_value = float(formula.evalf(subs=values))
             rounded_value = round_to_2_decimals(computed_value)
             logger.info(f"Computed value: {rounded_value}")
 
-            results[var.var_name] = {
+            # Chiave sanitizzata come per le variabili mappate (le view la
+            # cercano con sanitize_variable_name)
+            results[sanitize_variable_name(var.var_name)] = {
                 "value": rounded_value,
-                "unit": var.unit 
+                "unit": var.unit
             }
             logger.info(computed_vars)
         except Exception as e:
-            results[var.var_name] = {
+            results[sanitize_variable_name(var.var_name)] = {
                 "value": 0,
                 "unit": var.unit if hasattr(var, "unit") else "N/A"
             }
@@ -253,6 +258,28 @@ def compute_variables(mapped_values, device):
     logger.info(f"Mapped JSON: {json_result}")
     logger.info(f"Computed variables for device {device.name}: {computed_vars}")
     return results
+
+"""
+Add an energy increment (kWh) to the cumulative, daily, weekly and monthly
+counters of `kind` ('produced' or 'consumed'), starting from the last EnergyData
+record. A period counter restarts from 0 when the last record belongs to a
+previous period.
+"""
+def _accumulate_energy(result, kind, increment, last_record, period_starts):
+    last_data = last_record.data if last_record else {}
+    last_ts = last_record.timestamp if last_record else None
+
+    def previous(key, period_start=None):
+        if last_ts is None or (period_start is not None and last_ts < period_start):
+            return 0.0
+        value = last_data.get(key)
+        return value.get('value', 0.0) if isinstance(value, dict) else 0.0
+
+    # 4 decimali: con letture ogni minuto gli incrementi sono dell'ordine di 0.01 kWh
+    result[f'Energy_{kind}'] = {'value': round(previous(f'Energy_{kind}') + increment, 4), 'unit': 'kWh'}
+    for period, start in zip(('daily', 'weekly', 'monthly'), period_starts):
+        key = f'Energy_{period}_{kind}'
+        result[key] = {'value': round(previous(key, start) + increment, 4), 'unit': 'kWh'}
 
 """
 Compute energy as power integral
@@ -310,7 +337,11 @@ def compute_energy(variables, device_data, energy_data):
 
             logger.info(f"power_cons_variable_name: {power_cons_variable_name}")
             logger.info(f"is_power_splitted: {is_power_splitted}")
-        # Compute energy for single power variable (DLMS VERSION)
+        # Contatori precedenti: vivono in EnergyData, non in DeviceData
+        previous_energy = energy_data.order_by('-timestamp').first()
+        period_starts = local_period_starts()
+
+        # Compute energy for single power variable (MODBUS VERSION)
         if previous_data and is_single_power_variable and not is_power_splitted:
             # Calculate delta time
             delta_time = (datetime.now(timezone.utc) - previous_data.timestamp).total_seconds()
@@ -319,231 +350,49 @@ def compute_energy(variables, device_data, energy_data):
             previous_p = previous_data.data.get(power_name, {}).get('value', 0)
             current_p = variables.get(power_name, {}).get('value', 0)
             average_value = (current_p + previous_p) / 2
+            # Energia in kWh: se la potenza è in W la porto in kW
+            if str(variables.get(power_name, {}).get('unit') or '').strip() == 'W':
+                average_value = average_value / 1000
 
-            # Compute the energy increment for this period
-            energy_increment = round_to_2_decimals(average_value * delta_time)
-
-            # Get previous energy values
-            previous_energy = previous_data.data.get('Energy', {}).get('value', 0.0)
-            previous_energy_produced = previous_data.data.get('Energy_produced', {}).get('value', 0.0)
-            previous_energy_consumed = previous_data.data.get('Energy_consumed', {}).get('value', 0.0)
-
-            # Update produced/consumed based on the sign of energy increment
-            # Negative power = energy produced, Positive power = energy consumed
-            if average_value >= 0:
-                # Consumption (positive power)
-                energy_consumed = round_to_2_decimals(previous_energy_consumed + energy_increment)
-                energy_produced = round_to_2_decimals(previous_energy_produced)
+            # Dopo un'interruzione lunga la media tra due letture lontane non è
+            # significativa: non integro, per evitare picchi di energia
+            if delta_time > MAX_INTEGRATION_GAP_SECONDS:
+                logger.warning(f"Gap of {delta_time:.0f}s since last reading: energy increment skipped")
+                energy_increment = 0.0
             else:
-                # Production (negative power)
-                energy_produced = round_to_2_decimals(previous_energy_produced + abs(energy_increment))
-                energy_consumed = round_to_2_decimals(previous_energy_consumed)
+                energy_increment = average_value * delta_time / 3600
 
-            # Total energy is still the running sum of all increments
-            integral_value = round_to_2_decimals(previous_energy + energy_increment)
+            # Negative power = energy produced, Positive power = energy consumed
+            produced_increment = abs(energy_increment) if energy_increment < 0 else 0.0
+            consumed_increment = energy_increment if energy_increment >= 0 else 0.0
 
-            logger.info(f"Computed integral value: {integral_value}")
-            
-            # Compute energy for different periods
-            now = datetime.now(timezone.utc)
-
-            # Define date ranges
-            start_of_day_utc = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            start_of_day_local = convert_to_local_time(start_of_day_utc)
-            start_of_day_filter = start_of_day_local.astimezone(timezone.utc)
-            
-            # Daily energy
-            daily_records = device_data.filter(timestamp__gte=start_of_day_filter)
-            daily_produced = daily_records.aggregate(
-                total=Sum(RawSQL("CASE WHEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) < 0 THEN ABS(CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION)) ELSE 0 END", []))
-            )['total'] or 0.0
-            daily_consumed = daily_records.aggregate(
-                total=Sum(RawSQL("CASE WHEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) >= 0 THEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) ELSE 0 END", []))
-            )['total'] or 0.0
-
-            # Weekly energy
-            start_of_week_utc = now.replace(hour=0, minute=0, second=0, microsecond=0).isocalendar().weekday(1)
-            start_of_week_local = convert_to_local_time(start_of_week_utc)
-            start_of_week_filter = start_of_week_local.astimezone(timezone.utc)
-            weekly_records = device_data.filter(timestamp__gte=start_of_week_filter)
-            weekly_produced = weekly_records.aggregate(
-                total=Sum(RawSQL("CASE WHEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) < 0 THEN ABS(CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION)) ELSE 0 END", []))
-            )['total'] or 0.0
-            weekly_consumed = weekly_records.aggregate(
-                total=Sum(RawSQL("CASE WHEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) >= 0 THEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) ELSE 0 END", []))
-            )['total'] or 0.0
-
-            # Monthly energy
-            start_of_month_utc = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            start_of_month_local = convert_to_local_time(start_of_month_utc)
-            start_of_month_filter = start_of_month_local.astimezone(timezone.utc)
-            monthly_records = device_data.filter(timestamp__gte=start_of_month_filter)
-            monthly_produced = monthly_records.aggregate(
-                total=Sum(RawSQL("CASE WHEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) < 0 THEN ABS(CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION)) ELSE 0 END", []))
-            )['total'] or 0.0
-            monthly_consumed = monthly_records.aggregate(
-                total=Sum(RawSQL("CASE WHEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) >= 0 THEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) ELSE 0 END", []))
-            )['total'] or 0.0
-
-            # Apply time factor to get energy values (power × time)
-            time_factor = delta_time  # This is approximate - ideally would sum actual time intervals
-
-            # Store all computed values in a structured dictionary
-            energy_data = {
-                'Energy': {'value': round_to_2_decimals(energy_produced + energy_consumed), 'unit': 'kWh'},
-                'Energy_produced': {'value': energy_produced, 'unit': 'kWh'},
-                'Energy_consumed': {'value': energy_consumed, 'unit': 'kWh'},
-                
-                'Energy_daily_produced': {'value': round_to_2_decimals(daily_produced * time_factor), 'unit': 'kWh'},
-                'Energy_daily_consumed': {'value': round_to_2_decimals(daily_consumed * time_factor), 'unit': 'kWh'},
-                
-                'Energy_weekly_produced': {'value': round_to_2_decimals(weekly_produced * time_factor), 'unit': 'kWh'},
-                'Energy_weekly_consumed': {'value': round_to_2_decimals(weekly_consumed * time_factor), 'unit': 'kWh'},
-                
-                'Energy_monthly_produced': {'value': round_to_2_decimals(monthly_produced * time_factor), 'unit': 'kWh'},
-                'Energy_monthly_consumed': {'value': round_to_2_decimals(monthly_consumed * time_factor), 'unit': 'kWh'},
+            new_energy = {}
+            _accumulate_energy(new_energy, 'produced', produced_increment, previous_energy, period_starts)
+            _accumulate_energy(new_energy, 'consumed', consumed_increment, previous_energy, period_starts)
+            new_energy['Energy'] = {
+                'value': round(new_energy['Energy_produced']['value'] + new_energy['Energy_consumed']['value'], 4),
+                'unit': 'kWh',
             }
 
+            logger.info(f"Computed energy data: {new_energy}")
+            return new_energy
 
-            logger.info(f"Computed energy data: {energy_data}")
-            return energy_data
-        
         # Compute energy for split power variables (DLMS VERSION)
         elif is_power_splitted and not is_single_power_variable and (power_prod_variable_name or power_cons_variable_name):
-            
-            logger.info(f"Computing the time intervals for the energy data")
+            new_energy = {}
 
-            # Daily, weekly, monthly energy produced and consumed
-            now = datetime.now(timezone.utc)
-
-            # Start of UTC day
-            start_of_day_utc = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        
-            # Convert to local (Django TZ)
-            start_of_day_local = convert_to_local_time(start_of_day_utc)
-
-            # For filtering DB (which expects UTC), convert back. Timestamps are utc in django
-            start_of_day_filter = start_of_day_local.astimezone(timezone.utc)
-
-            daily_records = energy_data.filter(timestamp__gte=start_of_day_filter)
-
-            # Start of UTC week
-            start_of_week_utc = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=now.weekday())
-
-            # Convert to local (Django TZ)
-            start_of_week_local = convert_to_local_time(start_of_week_utc)
-
-            # For filtering DB (which expects UTC), convert back. Timestampas are utc in django
-            start_of_week_filter = start_of_week_local.astimezone(timezone.utc)
-
-            weekly_records = energy_data.filter(timestamp__gte=start_of_week_filter)
-
-            # Start of UTC month
-            start_of_month_utc = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-            # Convert to local (Django TZ)
-            start_of_month_local = convert_to_local_time(start_of_month_utc)
-
-            # For filtering DB (which expects UTC), convert back. Timestampas are utc in django
-            start_of_month_filter = start_of_month_local.astimezone(timezone.utc)
-            monthly_records = energy_data.filter(timestamp__gte=start_of_month_filter)
-
-            # Create a structured dictionary for the energy data
-            energy_data = {}
-
-            # Daily, weekly, monthly energy produced
+            # Letture DLMS ogni 15 minuti: kWh = kW / 4
             if power_prod_variable_name:
-
-                logger.info(f"Computing energy for power produced: {power_prod_variable_name}")
-
-                # Get the current value of power produced
                 current_p_produced = variables.get(power_prod_variable_name, {}).get('value', 0)
+                _accumulate_energy(new_energy, 'produced', current_p_produced / 4, previous_energy, period_starts)
 
-                # Compute the energy increment for this period
-                energy_produced_increment = round_to_2_decimals(current_p_produced / 4)
-
-                # Get the previous energy produced
-                previous_energy_produced = previous_data.data.get('Energy_produced', {}).get('value', 0.0) if previous_data else 0.0
-
-                # Update the energy produced
-                energy_produced = round_to_2_decimals(previous_energy_produced + energy_produced_increment)
-
-                # Daily, weekly, monthly energy produced variables
-                last_daily_record = daily_records.order_by('-timestamp').first()
-                if last_daily_record and 'Energy_daily_produced' in last_daily_record.data:
-                    daily_produced = last_daily_record.data['Energy_daily_produced'].get('value', 0.0)
-                else:
-                    daily_produced = 0.0
-                daily_produced = round_to_2_decimals(daily_produced + energy_produced_increment)
-
-                last_weekly_record = weekly_records.order_by('-timestamp').first()
-                if last_weekly_record and 'Energy_weekly_produced' in last_weekly_record.data:
-                    weekly_produced = last_weekly_record.data['Energy_weekly_produced'].get('value', 0.0)
-                else:
-                    weekly_produced = 0.0
-                weekly_produced = round_to_2_decimals(weekly_produced + energy_produced_increment)
-
-                last_monthly_record = monthly_records.order_by('-timestamp').first()
-                if last_monthly_record and 'Energy_monthly_produced' in last_monthly_record.data:
-                    monthly_produced = last_monthly_record.data['Energy_monthly_produced'].get('value', 0.0)
-                else:
-                    monthly_produced = 0.0
-                monthly_produced = round_to_2_decimals(monthly_produced + energy_produced_increment)
-
-                # Add energy produced to the energy data dictionary
-                energy_data['Energy_produced'] = {'value': energy_produced, 'unit': 'kWh'}
-                energy_data['Energy_daily_produced'] = {'value': daily_produced, 'unit': 'kWh'}
-                energy_data['Energy_weekly_produced'] = {'value': weekly_produced, 'unit': 'kWh'}
-                energy_data['Energy_monthly_produced'] = {'value': monthly_produced, 'unit': 'kWh'}
-
-            # Daily, weekly, monthly energy consumed
             if power_cons_variable_name:
-
-                logger.info(f"Computing energy for power consumed: {power_cons_variable_name}")
-
-                # Get the current value of power consumed
                 current_p_consumed = variables.get(power_cons_variable_name, {}).get('value', 0)
+                _accumulate_energy(new_energy, 'consumed', current_p_consumed / 4, previous_energy, period_starts)
 
-                # Compute the energy increment for this period
-                energy_consumed_increment = round_to_2_decimals(current_p_consumed / 4)
-
-                # Get the previous energy consumed
-                previous_energy_consumed = previous_data.data.get('Energy_consumed', {}).get('value', 0.0) if previous_data else 0.0
-
-                # Update the energy consumed
-                energy_consumed = round_to_2_decimals(previous_energy_consumed + energy_consumed_increment)
-
-                # Daily, weekly, monthly energy consumed variables
-                last_daily_record_cons = daily_records.order_by('-timestamp').first()
-                if last_daily_record_cons and 'Energy_daily_consumed' in last_daily_record_cons.data:
-                    daily_consumed = last_daily_record_cons.data['Energy_daily_consumed'].get('value', 0.0)
-                else:
-                    daily_consumed = 0.0
-                daily_consumed = round_to_2_decimals(daily_consumed + energy_consumed_increment)
-
-                last_weekly_record_cons = weekly_records.order_by('-timestamp').first()
-                if last_weekly_record_cons and 'Energy_weekly_consumed' in last_weekly_record_cons.data:
-                    weekly_consumed = last_weekly_record_cons.data['Energy_weekly_consumed'].get('value', 0.0)
-                else:
-                    weekly_consumed = 0.0
-                weekly_consumed = round_to_2_decimals(weekly_consumed + energy_consumed_increment)
-
-                last_monthly_record_cons = monthly_records.order_by('-timestamp').first()
-                if last_monthly_record_cons and 'Energy_monthly_consumed' in last_monthly_record_cons.data:
-                    monthly_consumed = last_monthly_record_cons.data['Energy_monthly_consumed'].get('value', 0.0)
-                else:
-                    monthly_consumed = 0.0
-                monthly_consumed = round_to_2_decimals(monthly_consumed + energy_consumed_increment)
-
-                # Add energy consumed to the energy data dictionary
-                energy_data['Energy_consumed'] = {'value': energy_consumed, 'unit': 'kWh'}
-                energy_data['Energy_daily_consumed'] = {'value': daily_consumed, 'unit': 'kWh'}
-                energy_data['Energy_weekly_consumed'] = {'value': weekly_consumed, 'unit': 'kWh'}
-                energy_data['Energy_monthly_consumed'] = {'value': monthly_consumed, 'unit': 'kWh'}
-
-            energy_data['timestamp'] = timestamp
-            logger.info(f"Computed energy data: {energy_data}")
-            return energy_data
+            new_energy['timestamp'] = timestamp
+            logger.info(f"Computed energy data: {new_energy}")
+            return new_energy
 
         else:   
             # If none of the above condition applies, the dict returned is empty.
@@ -560,10 +409,9 @@ def compute_device_availability(device, data):
     try:
         now = datetime.now(timezone.utc)
         now_local = convert_to_local_time(now)
-        # Get start of local day in UTC
-        start_of_local_day = datetime(now_local.year, now_local.month, now_local.day, 0, 0, 0)
-        start_of_local_day_utc = start_of_local_day.astimezone(timezone.utc)
-        device_data = DeviceData.objects.filter(device_name=device, timestamp__gte=start_of_local_day_utc)
+        # Mezzanotte locale (aware): un datetime naive verrebbe letto come UTC
+        start_of_local_day = local_period_starts(now)[0]
+        device_data = DeviceData.objects.filter(device_name=device, timestamp__gte=start_of_local_day)
         if device_data.count() == 0:
             return 0
         else:

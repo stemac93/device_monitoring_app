@@ -48,7 +48,7 @@ def home_view(request):
             selected_date = None
     
     if not selected_date:
-        selected_date = timezone.now().date()
+        selected_date = timezone.localdate()  # data locale, non UTC
     
     # Calculate start and end of selected day
     start_of_day = timezone.make_aware(datetime.combine(selected_date, datetime.min.time()))

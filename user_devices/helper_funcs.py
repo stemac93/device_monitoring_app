@@ -31,6 +31,23 @@ def convert_value(raw_value, conversion_factor):
     result = raw_value * conversion_factor
     return round_to_2_decimals(result)
 
+def local_period_starts(now=None):
+    """Inizio (aware, ora locale) di giorno, settimana (lunedì) e mese correnti.
+
+    Django confronta correttamente datetime aware con i timestamp UTC del DB,
+    quindi non serve riconvertire in UTC.
+    """
+    now_local = timezone.localtime(now or timezone.now())
+    start_of_day = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_of_week = start_of_day - timedelta(days=start_of_day.weekday())
+    start_of_month = start_of_day.replace(day=1)
+    # replace()/timedelta non ricalcolano l'offset DST: rilocalizzo
+    tz = timezone.get_current_timezone()
+    return tuple(
+        timezone.make_aware(dt.replace(tzinfo=None), tz)
+        for dt in (start_of_day, start_of_week, start_of_month)
+    )
+
 def convert_to_local_time(utc_dt):
     if timezone.is_aware(utc_dt):  # Se il datetime è già timezone-aware
         return timezone.localtime(utc_dt)
