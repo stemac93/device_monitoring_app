@@ -65,7 +65,17 @@ class HandleRawTests(TestCase):
         args, kwargs = mock_put.call_args
         self.assertEqual(args[0], 42)  # device_pk
         self.assertEqual(args[1], {0x280: 2301, 0x281: 15, 0x282: 48923})
-        self.assertEqual(kwargs.get("ts"), 1745161800.0)
+        # ts = ora di arrivo (default di put_raw), non l'orologio del gateway
+        self.assertIsNone(kwargs.get("ts"))
+
+    @patch("user_devices.mqtt.consumer._handle_raw")
+    def test_retained_raw_message_ignored(self, mock_handle):
+        from user_devices.mqtt.consumer import _dispatch
+
+        _dispatch("plants/1/devices/42/raw", b"{}", retained=True)
+        mock_handle.assert_not_called()
+        _dispatch("plants/1/devices/42/raw", b"{}", retained=False)
+        mock_handle.assert_called_once()
 
     @patch("user_devices.mqtt.consumer.put_raw")
     def test_malformed_json_is_silent(self, mock_put):
@@ -167,6 +177,16 @@ class CacheRoundtripTests(TestCase):
         result = get_raw(42)
 
         self.assertIsNone(result)
+
+    def test_claim_returns_each_snapshot_once(self):
+        from user_devices.mqtt.cache import put_raw, claim_raw
+
+        now = time.time()
+        put_raw(42, {0x0: 1}, ts=now)
+        self.assertEqual(claim_raw(42), {0x0: 1})
+        self.assertIsNone(claim_raw(42))  # stesso snapshot: già elaborato
+        put_raw(42, {0x0: 2}, ts=now + 30)
+        self.assertEqual(claim_raw(42), {0x0: 2})
 
     def test_missing_entry_returns_none(self):
         from user_devices.mqtt.cache import get_raw

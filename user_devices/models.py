@@ -193,6 +193,8 @@ class Button(models.Model):
         ordering = ['label']
 
     def __str__(self):
+        if self.Gateway is None:  # FK nullable
+            return f"{self.label} (no gateway)"
         return f"{self.Gateway.name}, {self.Gateway.ip_address}"
 
 class GatewayMqttCredentials(models.Model):

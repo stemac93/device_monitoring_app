@@ -23,6 +23,13 @@
         </div>
     </header>
     <main class="main-content">
+        {% if messages %}
+        <ul class="messages" style="list-style:none;padding:0;margin:0 0 1em;">
+            {% for message in messages %}
+            <li style="padding:8px 12px;margin-bottom:6px;border-radius:4px;background:{% if message.tags == 'error' %}#fdecea;color:#a30{% else %}#e8f5e9;color:#1b5e20{% endif %};">{{ message }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
         <!-- Plant Overview Section with Tabbed Charts -->
         <div class="plant-overview-section">
             <section class="chart-section">

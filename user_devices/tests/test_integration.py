@@ -101,7 +101,7 @@ class DeviceDataFlowIntegrationTest(MockMosquittoAdminMixin, TransactionTestCase
         
         # Run the task
         try:
-            scan_and_read_devices(self.gateway.ip_address)
+            scan_and_read_devices(self.gateway.pk)
         except Exception as e:
             print(f"Error: {e}")
         

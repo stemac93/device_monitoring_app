@@ -94,19 +94,25 @@ def on_disconnect(client, userdata, disconnect_flags, rc, properties=None):
 
 def on_message(client, userdata, msg):
     try:
-        _dispatch(msg.topic, msg.payload)
+        _dispatch(msg.topic, msg.payload, retained=msg.retain)
     except Exception:
         # Non rilanciare: un messaggio malformato non deve uccidere il consumer
         logger.exception("Error handling message on %s", msg.topic)
 
 
-def _dispatch(topic: str, payload: bytes) -> None:
+def _dispatch(topic: str, payload: bytes, retained: bool = False) -> None:
     parts = topic.split("/")
     # plants/{gw}/devices/{dev}/raw → 5 parti
     # plants/{gw}/status → 3 parti
     # plants/{gw}/devices/{dev}/status → 5 parti
 
     if len(parts) == 5 and parts[0] == "plants" and parts[2] == "devices" and parts[4] == "raw":
+        if retained:
+            # Messaggio retained ricevuto alla (ri)connessione: può essere vecchio
+            # di giorni e, con il ts di arrivo, sembrerebbe fresco. Il prossimo
+            # ciclo Telegraf (~30s) ripopola la cache con un dato reale.
+            logger.debug("Ignoring retained message on %s", topic)
+            return
         _handle_raw(parts[1], parts[3], payload)
     elif len(parts) == 3 and parts[0] == "plants" and parts[2] == "status":
         logger.info("Gateway %s status: %s", parts[1], payload.decode(errors="replace"))
@@ -161,18 +167,15 @@ def _handle_raw(gateway_topic_id: str, device_topic_id: str, payload: bytes) -> 
         logger.debug("No register fields in message for device %s", device_pk)
         return
 
-    ts = data.get("timestamp")
-    try:
-        ts = float(ts) if ts is not None else None
-    except (TypeError, ValueError):
-        ts = None
-
-    put_raw(device_pk, base_values, ts=ts)
+    # ts = ora di arrivo sul server: il timestamp nel payload viene dall'orologio
+    # del gateway (RPi senza RTC/NTP può essere indietro di ore) e renderebbe
+    # la freschezza inaffidabile. Resta nel log come informazione.
+    put_raw(device_pk, base_values)
     logger.debug(
-        "Cached %d registers for device_pk=%s (ts=%s, first=0x%04x)",
+        "Cached %d registers for device_pk=%s (gateway ts=%s, first=0x%04x)",
         len(base_values),
         device_pk,
-        ts,
+        data.get("timestamp"),
         min(base_values),
     )
 

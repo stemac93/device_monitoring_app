@@ -908,6 +908,8 @@ class TestGetQuarterHourWindow(TestCase):
         self.assertEqual(start_time, expected_start)
         self.assertEqual(end_time, expected_end)
 
+# I test usano timestamp fissi: il filtro sull'età dei dati è disattivato
+@patch('user_devices.functions.PLANT_DATA_MAX_AGE', None)
 class TestComputePlantProduction(TestCase):
     @patch('user_devices.functions.DeviceData')
     def test_compute_plant_production_modbus_quarter_hour_averaging(self, mock_device_data):
@@ -1049,20 +1051,20 @@ class TestComputePlantProduction(TestCase):
         latest_data.timestamp = datetime(2024, 6, 15, 15, 17, 30, tzinfo=timezone.utc)
         latest_data.data = {
             'Pout': {'value': 1000.0, 'unit': 'W'},
-            'Power Production': {'value': 500.0, 'unit': 'W'}
+            'Power_Production': {'value': 500.0, 'unit': 'W'}
         }
         
         # Mock quarter-hour data
         quarter_hour_data_1 = Mock()
         quarter_hour_data_1.data = {
             'Pout': {'value': 800.0, 'unit': 'W'},
-            'Power Production': {'value': 400.0, 'unit': 'W'}
+            'Power_Production': {'value': 400.0, 'unit': 'W'}
         }
         
         quarter_hour_data_2 = Mock()
         quarter_hour_data_2.data = {
             'Pout': {'value': 1200.0, 'unit': 'W'},
-            'Power Production': {'value': 600.0, 'unit': 'W'}
+            'Power_Production': {'value': 600.0, 'unit': 'W'}
         }
         
         # Mock DeviceData queryset - need to handle different filter calls

@@ -21,6 +21,25 @@ TIMEOUT = 5                 # Timeout per la connessione
 # Oltre questo intervallo tra due letture l'energia non viene integrata
 MAX_INTEGRATION_GAP_SECONDS = 10 * 60
 
+# Nomi di variabile riconosciuti, nella forma sanitizzata con cui sono salvati
+# nei dati (map_variables / read_dlms_values applicano sanitize_variable_name)
+POWER_NAMES = [sanitize_variable_name(n) for n in ('P', 'Power', 'Potenza')]
+POWER_PROD_NAMES = [sanitize_variable_name(n) for n in ('Pout', 'Power Production', 'Potenza in uscita')]
+POWER_CONS_NAMES = [sanitize_variable_name(n) for n in ('Pin', 'Power Consumption', 'Potenza in entrata')]
+MEAN_RADIANCE_NAMES = [sanitize_variable_name(n) for n in (
+    'Mean Number Radiance', 'Mean Radiance', 'Radiance Mean', 'Radiance Avg', 'Rad Avg')]
+RADIANCE_NAMES = ['Radiance', 'radiance', 'rad', 'Rad']
+
+# Oltre questa età l'ultimo dato di un device non conta per produzione/radianza
+# dell'impianto (un impianto offline non deve mostrare l'ultima produzione nota)
+PLANT_DATA_MAX_AGE = timedelta(minutes=30)
+
+
+def _is_recent(record):
+    if PLANT_DATA_MAX_AGE is None:
+        return True
+    return record.timestamp >= datetime.now(timezone.utc) - PLANT_DATA_MAX_AGE
+
 """
 Probes a DLMS device to check if it is reachable.
 """
@@ -279,6 +298,24 @@ def _accumulate_energy(result, kind, increment, last_record, period_starts):
         result[key] = {'value': round(previous(key, start) + increment, 4), 'unit': 'kWh'}
 
 """
+Energy (kWh) between the previous reading and this one: trapezoidal mean of the
+power times the elapsed time. After a gap longer than MAX_INTEGRATION_GAP_SECONDS
+nothing is integrated (the mean of two distant readings is meaningless).
+"""
+def _power_increment_kwh(power_name, variables, previous_data):
+    delta_time = (datetime.now(timezone.utc) - previous_data.timestamp).total_seconds()
+    previous_p = previous_data.data.get(power_name, {}).get('value', 0)
+    current_p = variables.get(power_name, {}).get('value', 0)
+    average_value = (current_p + previous_p) / 2
+    # Energia in kWh: se la potenza è in W la porto in kW
+    if str(variables.get(power_name, {}).get('unit') or '').strip() == 'W':
+        average_value = average_value / 1000
+    if delta_time > MAX_INTEGRATION_GAP_SECONDS:
+        logger.warning(f"Gap of {delta_time:.0f}s since last reading: energy increment skipped")
+        return 0.0
+    return average_value * delta_time / 3600
+
+"""
 Compute energy as power integral
 """
 def compute_energy(variables, device_data, energy_data):
@@ -287,118 +324,60 @@ def compute_energy(variables, device_data, energy_data):
         # Get the most recent data
         previous_data = device_data.order_by('-timestamp').first()
 
-        # Define possible power variable names
-        power_prod_variable_names = ['Pout', 'Power Production', 'Potenza in uscita']
-        power_cons_variable_names = ['Pin', 'Power Consumption', 'Potenza in entrata']
-        power_variable_names = ['P', 'Power', 'Potenza']
+        power_name = next((n for n in POWER_NAMES if n in variables), None)
+        power_prod_variable_name = next((n for n in POWER_PROD_NAMES if n in variables), None)
+        power_cons_variable_name = next((n for n in POWER_CONS_NAMES if n in variables), None)
+        # Solo le letture DLMS (profili a 15 minuti) hanno il timestamp del contatore
+        timestamp = variables.get('timestamp')
+        logger.info(f"Power variables: single={power_name}, prod={power_prod_variable_name}, cons={power_cons_variable_name}")
 
-        power_name = None
-        power_cons_variable_name = None
-        power_prod_variable_name = None
-        is_power_splitted = False
+        if not (power_name or power_prod_variable_name or power_cons_variable_name):
+            return None
 
-        # Check if the power variable name is configured (MODBUS VERSION)
-        is_single_power_variable = False
-        for name in power_variable_names:
-            if name in variables:
-                power_name = name
-                is_single_power_variable = True
-                break
-
-        logger.info(f"is_single_power_variable: {is_single_power_variable}")
-        if is_single_power_variable:
-            logger.info(f"power_name: {power_name}")
-
-        # Check if the power variable name is configured (DLMS VERSION - Two variables for power)
-        if not is_single_power_variable:
-            is_single_power_variable = False
-            for name in power_prod_variable_names:
-                if name in variables:
-                    power_prod_variable_name = name
-                    is_power_splitted = True
-                    break
-            
-            logger.info(f"power_prod_variable_name: {power_prod_variable_name}")
-
-            for name in power_cons_variable_names:
-                if name in variables:
-                    power_cons_variable_name = name
-                    is_power_splitted = True
-                    break
-
-        # Get timestamp of the dlms reading of the power variable
-            timestamp = variables.get('timestamp', None)
-            if not timestamp:
-                logger.info(f"No timestamp found in variables")
-                return None
-
-            logger.info(f"power_cons_variable_name: {power_cons_variable_name}")
-            logger.info(f"is_power_splitted: {is_power_splitted}")
         # Contatori precedenti: vivono in EnergyData, non in DeviceData
         previous_energy = energy_data.order_by('-timestamp').first()
         period_starts = local_period_starts()
+        new_energy = {}
 
-        # Compute energy for single power variable (MODBUS VERSION)
-        if previous_data and is_single_power_variable and not is_power_splitted:
-            # Calculate delta time
-            delta_time = (datetime.now(timezone.utc) - previous_data.timestamp).total_seconds()
-
-            # Calculate the average value of power
-            previous_p = previous_data.data.get(power_name, {}).get('value', 0)
-            current_p = variables.get(power_name, {}).get('value', 0)
-            average_value = (current_p + previous_p) / 2
-            # Energia in kWh: se la potenza è in W la porto in kW
-            if str(variables.get(power_name, {}).get('unit') or '').strip() == 'W':
-                average_value = average_value / 1000
-
-            # Dopo un'interruzione lunga la media tra due letture lontane non è
-            # significativa: non integro, per evitare picchi di energia
-            if delta_time > MAX_INTEGRATION_GAP_SECONDS:
-                logger.warning(f"Gap of {delta_time:.0f}s since last reading: energy increment skipped")
-                energy_increment = 0.0
-            else:
-                energy_increment = average_value * delta_time / 3600
-
-            # Negative power = energy produced, Positive power = energy consumed
+        if power_name:
+            # Potenza unica con segno: negativa = prodotta, positiva = consumata
+            if not previous_data:
+                return None
+            energy_increment = _power_increment_kwh(power_name, variables, previous_data)
             produced_increment = abs(energy_increment) if energy_increment < 0 else 0.0
             consumed_increment = energy_increment if energy_increment >= 0 else 0.0
-
-            new_energy = {}
             _accumulate_energy(new_energy, 'produced', produced_increment, previous_energy, period_starts)
             _accumulate_energy(new_energy, 'consumed', consumed_increment, previous_energy, period_starts)
             new_energy['Energy'] = {
                 'value': round(new_energy['Energy_produced']['value'] + new_energy['Energy_consumed']['value'], 4),
                 'unit': 'kWh',
             }
+        else:
+            # Potenze separate prodotta/consumata
+            for kind, name in (('produced', power_prod_variable_name), ('consumed', power_cons_variable_name)):
+                if not name:
+                    continue
+                if timestamp:
+                    # DLMS: una lettura ogni 15 minuti, kWh = kW / 4
+                    increment = variables.get(name, {}).get('value', 0) / 4
+                elif previous_data:
+                    # Modbus: integrale tra due letture come per la potenza unica
+                    increment = _power_increment_kwh(name, variables, previous_data)
+                else:
+                    continue  # prima lettura Modbus: niente da integrare
+                _accumulate_energy(new_energy, kind, increment, previous_energy, period_starts)
+            if not new_energy:
+                return None
+            if timestamp:
+                new_energy['timestamp'] = timestamp
 
-            logger.info(f"Computed energy data: {new_energy}")
-            return new_energy
-
-        # Compute energy for split power variables (DLMS VERSION)
-        elif is_power_splitted and not is_single_power_variable and (power_prod_variable_name or power_cons_variable_name):
-            new_energy = {}
-
-            # Letture DLMS ogni 15 minuti: kWh = kW / 4
-            if power_prod_variable_name:
-                current_p_produced = variables.get(power_prod_variable_name, {}).get('value', 0)
-                _accumulate_energy(new_energy, 'produced', current_p_produced / 4, previous_energy, period_starts)
-
-            if power_cons_variable_name:
-                current_p_consumed = variables.get(power_cons_variable_name, {}).get('value', 0)
-                _accumulate_energy(new_energy, 'consumed', current_p_consumed / 4, previous_energy, period_starts)
-
-            new_energy['timestamp'] = timestamp
-            logger.info(f"Computed energy data: {new_energy}")
-            return new_energy
-
-        else:   
-            # If none of the above condition applies, the dict returned is empty.
-            return None
+        logger.info(f"Computed energy data: {new_energy}")
+        return new_energy
 
     except Exception as e:
         logger.error(f"Error during computation: {e}", exc_info=True)
         return None
-        
+
 """
 Compute device availability
 """
@@ -530,8 +509,9 @@ def is_device_data_already_stored(device, data):
                         return True
         return False
     except Exception as e:
-        logger.info(f"Error while checking the device data: {e}")
-        return True
+        # Nel dubbio si salva: scartare il dato lo perderebbe senza traccia
+        logger.warning(f"Error while checking the device data: {e}")
+        return False
 
 """
 Check if the energy data is already stored in the Database
@@ -557,8 +537,9 @@ def is_energy_data_already_stored(device, data):
                         return True
         return False
     except Exception as e:
-        logger.info(f"Error while checking the energy data: {e}")
-        return True
+        # Nel dubbio si salva: scartare il dato lo perderebbe senza traccia
+        logger.warning(f"Error while checking the energy data: {e}")
+        return False
 
 """
 Compute plant availability
@@ -642,7 +623,7 @@ def compute_plant_production(gateway, devices):
     try:
         # Aggregate the power in of the devices
         power_out = 0
-        power_out_variable_names = ['Pout', 'Power Production', 'Potenza in uscita']
+        power_out_variable_names = POWER_PROD_NAMES
         
         for device in devices:
             if device.is_enabled:
@@ -650,7 +631,7 @@ def compute_plant_production(gateway, devices):
                 latest_device_data = DeviceData.objects.filter(device_name=device).order_by('-timestamp').first()
                 logger.info(f"Latest device data: {latest_device_data}")
                 
-                if latest_device_data and latest_device_data.data:
+                if latest_device_data and latest_device_data.data and _is_recent(latest_device_data):
                     logger.info(f"Latest device data items: {latest_device_data.data.items()}")
                     
                     # Check if device has power variables
@@ -727,10 +708,9 @@ def compute_plant_production(gateway, devices):
 def find_radiance_value(devices):
     try:
         # Define mean radiance keys (higher priority)
-        #mean_radiance = ['Mean_Number_Radiance', 'Radiance_Mean', 'Rad_Mean', 'Radiance_Avg', 'Rad_Avg']
-        mean_radiance = ['Mean Number Radiance', 'Mean Radiance', 'Radiance Mean', 'Radiance Avg', 'Rad Avg']
+        mean_radiance = MEAN_RADIANCE_NAMES
         # Define general radiance keys (lower priority)
-        radiance = ['Radiance', 'radiance', 'rad', 'Rad']
+        radiance = RADIANCE_NAMES
         
         radiance_value = None
         mean_radiance_value = None
@@ -746,7 +726,7 @@ def find_radiance_value(devices):
                     logger.info(f"Latest device data items: {latest_device_data.data.items()}")
                     logger.info(f"Latest device data timestamp: {latest_device_data.timestamp}")
 
-                if latest_device_data and latest_device_data.data:
+                if latest_device_data and latest_device_data.data and _is_recent(latest_device_data):
                     # Check if device has radiance variables (either mean or general)
                     device_has_mean_radiance = any(key in latest_device_data.data for key in mean_radiance)
                     device_has_radiance = any(key in latest_device_data.data for key in radiance)

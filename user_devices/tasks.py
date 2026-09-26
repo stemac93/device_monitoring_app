@@ -10,7 +10,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 
 from .models import Device, Gateway, DeviceData, EnergyData
 import user_devices.functions as functions
-from .mqtt.cache import get_raw, get_raw_age
+from .mqtt.cache import claim_raw, get_raw, get_raw_age
 from .helper_funcs import convert_to_local_time, local_period_starts
 
 logger = logging.getLogger(__name__)
@@ -34,18 +34,18 @@ gateway passa al nuovo percorso. Gli altri continuano con polling TCP.
 
 
 @shared_task(soft_time_limit=240, time_limit=300)
-def scan_and_read_devices(gateway_ip):
-    lock_key = f"lock_device_{gateway_ip}"
+def scan_and_read_devices(gateway_id):
+    lock_key = f"lock_gateway_{gateway_id}"
 
     # Lock non bloccante: se il ciclo precedente su questo gateway è ancora in
     # corso si salta il giro, invece di occupare un worker in attesa (con beat
     # ogni 60s i task in attesa si accumulerebbero fino a saturare il pool)
     lock = Lock(redis_client, lock_key, timeout=300, blocking=False)
     if not lock.acquire():
-        logger.info("Gateway %s still being processed, skipping this cycle", gateway_ip)
+        logger.info("Gateway %s still being processed, skipping this cycle", gateway_id)
         return
     try:
-        _scan_gateway(gateway_ip)
+        _scan_gateway(gateway_id)
     finally:
         try:
             lock.release()
@@ -53,11 +53,11 @@ def scan_and_read_devices(gateway_ip):
             logger.warning("Lock %s expired before release", lock_key)
 
 
-def _scan_gateway(gateway_ip):
+def _scan_gateway(gateway_id):
     try:
-        gateway = Gateway.objects.get(ip_address=gateway_ip)
+        gateway = Gateway.objects.get(pk=gateway_id)
     except Gateway.DoesNotExist:
-        logger.warning("Gateway %s not found", gateway_ip)
+        logger.warning("Gateway %s not found", gateway_id)
         return
 
     logger.info(
@@ -123,7 +123,7 @@ def _scan_gateway(gateway_ip):
                 device.save(update_fields=["availability", "daily_production", "daily_consumption"])
 
         except SoftTimeLimitExceeded:
-            logger.warning("Soft time limit reached on gateway %s, stopping at device %s", gateway_ip, device.name)
+            logger.warning("Soft time limit reached on gateway %s, stopping at device %s", gateway_id, device.name)
             break
         except Exception as e:
             logger.error("Error processing device %s: %s", device.name, e)
@@ -147,8 +147,11 @@ def _process_modbus_from_cache(device):
     dati assenti o stale (in quel caso il device non viene aggiornato in DB
     per evitare di scrivere valori finti durante disconnessioni).
     """
-    base_values = get_raw(device.pk)
+    base_values = claim_raw(device.pk)
     if base_values is None:
+        if get_raw(device.pk) is not None:
+            logger.info("MQTT snapshot for device %s already processed, waiting for new data", device.name)
+            return None
         age = get_raw_age(device.pk)
         if age is None:
             logger.info("No MQTT data yet for device %s (pk=%s)", device.name, device.pk)
@@ -256,8 +259,8 @@ def compute_plant_metrics():
 def check_all_devices():
     logger.info("Checking all devices...")
     gateways = Gateway.objects.all()
-    gateway_ip = [gateway.ip_address for gateway in gateways]
-    job = group(scan_and_read_devices.s(ip_address) for ip_address in gateway_ip)
+    # Per pk: ip_address non è univoco (NAT, gateway MQTT con IP segnaposto)
+    job = group(scan_and_read_devices.s(gateway.pk) for gateway in gateways)
     job.apply_async()
 
 

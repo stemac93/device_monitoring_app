@@ -35,6 +35,13 @@
     </div>
 
     <main class="main-content">
+        {% if messages %}
+        <ul class="messages" style="list-style:none;padding:0;margin:0 0 1em;">
+            {% for message in messages %}
+            <li style="padding:8px 12px;margin-bottom:6px;border-radius:4px;background:{% if message.tags == 'error' %}#fdecea;color:#a30{% else %}#e8f5e9;color:#1b5e20{% endif %};">{{ message }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
         <section class="graph-section">
             <h2>Chart</h2>
         
@@ -48,13 +55,7 @@
                 </div>
 
                 <!-- Embed JSON data safely -->
-                <script id="chart-data" type="application/json">
-                    {
-                        "y_label": "{{ y_label }}",
-                        "x_data": {{ x_data|safe }},
-                        "y_data": {{ y_data|safe }}
-                    }
-                </script>
+                {{ chart|json_script:"chart-data" }}
 
                 <style>
                     #deviceChart {
