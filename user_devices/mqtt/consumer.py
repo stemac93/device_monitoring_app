@@ -84,7 +84,8 @@ def on_connect(client, userdata, flags, rc, properties=None):
         logger.error("MQTT connection failed, rc=%s", rc)
 
 
-def on_disconnect(client, userdata, rc, properties=None):
+def on_disconnect(client, userdata, disconnect_flags, rc, properties=None):
+    # Firma CallbackAPIVersion.VERSION2 (vedi build_client)
     logger.warning("MQTT disconnected rc=%s - paho auto-reconnect in loop_forever()", rc)
 
 

@@ -12,6 +12,7 @@ non blocca la transazione DB.
 import logging
 import secrets
 
+from django.db import transaction
 from django.db.models.signals import m2m_changed, post_save, post_delete
 from django.dispatch import receiver
 
@@ -61,13 +62,37 @@ def _build_acl_entries():
     return entries
 
 
-def _sync_mosquitto_state():
+def _sync_mosquitto_state() -> bool:
+    """Riscrive l'ACL e ricarica il broker. Ritorna False se fallisce."""
     try:
         entries = _build_acl_entries()
         admin_client.rewrite_acl(entries)
         admin_client.reload_broker()
+        return True
     except admin_client.MosquittoAdminError as e:
         logger.error("Failed to sync Mosquitto state: %s", e)
+        return False
+
+
+def _provision_gateway_user(username: str, password: str) -> None:
+    try:
+        admin_client.add_user(username=username, password=password)
+        _sync_mosquitto_state()
+    except admin_client.MosquittoAdminError as e:
+        logger.error(
+            "MQTT provisioning failed for %s - DB record saved, broker NOT updated: %s",
+            username,
+            e,
+        )
+
+
+def _remove_gateway_user(username: str) -> None:
+    try:
+        admin_client.delete_user(username)
+        _sync_mosquitto_state()
+        logger.info("Removed MQTT user %s after gateway delete", username)
+    except admin_client.MosquittoAdminError as e:
+        logger.error("Failed to remove MQTT user %s: %s", username, e)
 
 
 @receiver(post_save, sender=Gateway)
@@ -94,23 +119,11 @@ def gateway_post_save(sender, instance, created, raw, **kwargs):
         username,
     )
 
-    try:
-        admin_client.add_user(username=username, password=password)
-        _sync_mosquitto_state()
-    except admin_client.MosquittoAdminError as e:
-        logger.error(
-            "MQTT provisioning failed for %s - DB record saved, broker NOT updated: %s",
-            username,
-            e,
-        )
+    # Il broker va toccato solo se la transazione del salvataggio va a buon fine
+    transaction.on_commit(lambda: _provision_gateway_user(username, password))
 
 
 @receiver(post_delete, sender=Gateway)
 def gateway_post_delete(sender, instance, **kwargs):
     username = _gateway_username(instance.pk)
-    try:
-        admin_client.delete_user(username)
-        _sync_mosquitto_state()
-        logger.info("Removed MQTT user %s after gateway delete", username)
-    except admin_client.MosquittoAdminError as e:
-        logger.error("Failed to remove MQTT user %s: %s", username, e)
+    transaction.on_commit(lambda: _remove_gateway_user(username))

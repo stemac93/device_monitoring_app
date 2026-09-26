@@ -4,7 +4,9 @@ import time
 from celery import shared_task, group
 from pymodbus.client import ModbusTcpClient
 from redis import Redis
+from redis.exceptions import LockError
 from redis.lock import Lock
+from celery.exceptions import SoftTimeLimitExceeded
 
 from .models import Device, Gateway, DeviceData, EnergyData
 import user_devices.functions as functions
@@ -35,85 +37,106 @@ gateway passa al nuovo percorso. Gli altri continuano con polling TCP.
 def scan_and_read_devices(gateway_ip):
     lock_key = f"lock_device_{gateway_ip}"
 
-    with Lock(redis_client, lock_key, timeout=300):
+    # Lock non bloccante: se il ciclo precedente su questo gateway è ancora in
+    # corso si salta il giro, invece di occupare un worker in attesa (con beat
+    # ogni 60s i task in attesa si accumulerebbero fino a saturare il pool)
+    lock = Lock(redis_client, lock_key, timeout=300, blocking=False)
+    if not lock.acquire():
+        logger.info("Gateway %s still being processed, skipping this cycle", gateway_ip)
+        return
+    try:
+        _scan_gateway(gateway_ip)
+    finally:
         try:
-            gateway = Gateway.objects.get(ip_address=gateway_ip)
-        except Gateway.DoesNotExist:
-            logger.warning("Gateway %s not found", gateway_ip)
-            return
+            lock.release()
+        except LockError:
+            logger.warning("Lock %s expired before release", lock_key)
 
-        logger.info(
-            "Processing devices for gateway %s (use_mqtt=%s)",
-            gateway.ip_address,
-            gateway.use_mqtt,
-        )
-        devices = Device.objects.filter(Gateway=gateway)
-        if not devices:
-            logger.info("No devices found for gateway %s", gateway.ip_address)
-            return
 
-        skip_dlms_devices = False
-        client = None
+def _scan_gateway(gateway_ip):
+    try:
+        gateway = Gateway.objects.get(ip_address=gateway_ip)
+    except Gateway.DoesNotExist:
+        logger.warning("Gateway %s not found", gateway_ip)
+        return
 
-        for device in devices:
-            if not device.is_enabled:
-                continue
+    logger.info(
+        "Processing devices for gateway %s (use_mqtt=%s)",
+        gateway.ip_address,
+        gateway.use_mqtt,
+    )
+    devices = Device.objects.filter(Gateway=gateway)
+    if not devices:
+        logger.info("No devices found for gateway %s", gateway.ip_address)
+        return
 
-            values = None
-            try:
-                if device.protocol == "modbus":
-                    if gateway.use_mqtt:
-                        values = _process_modbus_from_cache(device)
-                    else:
-                        client, values = _process_modbus_from_tcp(device, gateway, client)
+    skip_dlms_devices = False
+    client = None
 
-                elif device.protocol == "dlms" and not skip_dlms_devices:
-                    # Ramo DLMS: invariato, polling diretto
-                    if not functions.probe_dlms_device(device, timeout=30):
-                        skip_dlms_devices = True
-                        time.sleep(1)
-                        continue
-                    logger.info("Reading DLMS device %s", device.name)
-                    values = functions.read_dlms_values(device)
-                    logger.info("DLMS values read: %s", values)
+    for device in devices:
+        if not device.is_enabled:
+            continue
+
+        values = None
+        try:
+            if device.protocol == "modbus":
+                if gateway.use_mqtt:
+                    values = _process_modbus_from_cache(device)
                 else:
+                    client, values = _process_modbus_from_tcp(device, gateway, client)
+
+            elif device.protocol == "dlms" and not skip_dlms_devices:
+                # Ramo DLMS: invariato, polling diretto
+                if not functions.probe_dlms_device(device, timeout=30):
+                    skip_dlms_devices = True
+                    time.sleep(1)
                     continue
-
-                if values is not None:
-                    device.availability = functions.compute_device_availability(device, values)
-                    logger.info("Device availability: %s", device.availability)
-
-                    device_data = DeviceData.objects.filter(device_name=device)
-                    energy_data = EnergyData.objects.filter(device_name=device)
-                    energy_values = functions.compute_energy(values, device_data, energy_data)
-
-                    functions.store_data_in_database(device, values)
-                    logger.info("Data saved for device %s", device.name)
-
-                    if energy_values is not None:
-                        functions.store_energy_data_in_database(device, energy_values)
-                        device.daily_production = energy_values.get(
-                            "Energy_daily_produced", {}
-                        ).get("value", 0.0)
-                        device.daily_consumption = energy_values.get(
-                            "Energy_daily_consumed", {}
-                        ).get("value", 0.0)
-                        logger.info("Energy data saved for device %s", device.name)
-
-                    device.save()
-
-            except Exception as e:
-                logger.error("Error processing device %s: %s", device.name, e)
+                logger.info("Reading DLMS device %s", device.name)
+                values = functions.read_dlms_values(device)
+                logger.info("DLMS values read: %s", values)
+            else:
                 continue
-            finally:
-                time.sleep(0.1)
 
-        # Chiudi eventuale client TCP aperto in modalità polling
-        if client is not None:
-            try:
-                client.close()
-            except Exception as e:
-                logger.warning("Error closing Modbus client: %s", e)
+            if values is not None:
+                device.availability = functions.compute_device_availability(device, values)
+                logger.info("Device availability: %s", device.availability)
+
+                device_data = DeviceData.objects.filter(device_name=device)
+                energy_data = EnergyData.objects.filter(device_name=device)
+                energy_values = functions.compute_energy(values, device_data, energy_data)
+
+                functions.store_data_in_database(device, values)
+                logger.info("Data saved for device %s", device.name)
+
+                if energy_values is not None:
+                    functions.store_energy_data_in_database(device, energy_values)
+                    device.daily_production = energy_values.get(
+                        "Energy_daily_produced", {}
+                    ).get("value", 0.0)
+                    device.daily_consumption = energy_values.get(
+                        "Energy_daily_consumed", {}
+                    ).get("value", 0.0)
+                    logger.info("Energy data saved for device %s", device.name)
+
+                # Solo i campi calcolati qui: non sovrascrivere modifiche fatte
+                # dall'admin mentre il task girava
+                device.save(update_fields=["availability", "daily_production", "daily_consumption"])
+
+        except SoftTimeLimitExceeded:
+            logger.warning("Soft time limit reached on gateway %s, stopping at device %s", gateway_ip, device.name)
+            break
+        except Exception as e:
+            logger.error("Error processing device %s: %s", device.name, e)
+            continue
+        finally:
+            time.sleep(0.1)
+
+    # Chiudi eventuale client TCP aperto in modalità polling
+    if client is not None:
+        try:
+            client.close()
+        except Exception as e:
+            logger.warning("Error closing Modbus client: %s", e)
 
 
 def _process_modbus_from_cache(device):

@@ -81,8 +81,8 @@ def read_dlms_values(device):
             logger.info(f"Rest API call: {rest_api_call}")
             logger.info(f"Payload: {payload}")
             logger.info(f"Params: {params}")
-            response = requests.post(rest_api_call, params=params, json=payload)
-            logger.info(f"Response: {response.json()}")
+            # Timeout: senza, un gateway bloccato terrebbe il task (e il lock) fino al kill
+            response = requests.post(rest_api_call, params=params, json=payload, timeout=30)
 
             if response.ok:
                 data = response.json()

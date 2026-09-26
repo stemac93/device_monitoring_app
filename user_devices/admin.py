@@ -90,18 +90,8 @@ class GatewayAdmin(admin.ModelAdmin):
             username = _gateway_username(gw.pk)
             new_password = _generate_password()
 
-            # Aggiorna o crea il record DB
-            cred, _ = GatewayMqttCredentials.objects.update_or_create(
-                gateway=gw,
-                defaults={
-                    'username': username,
-                    'password_plaintext': new_password,
-                    'password_revealed': False,
-                },
-            )
             try:
                 admin_client.add_user(username=username, password=new_password)
-                n_ok += 1
             except admin_client.MosquittoAdminError as e:
                 n_err += 1
                 self.message_user(
@@ -109,12 +99,27 @@ class GatewayAdmin(admin.ModelAdmin):
                     f"Errore broker per gateway {gw.pk}: {e}",
                     messages.ERROR,
                 )
+                continue
+
+            # Il DB si aggiorna solo se il broker ha accettato la nuova password,
+            # altrimenti il bundle conterrebbe credenziali non valide
+            GatewayMqttCredentials.objects.update_or_create(
+                gateway=gw,
+                defaults={
+                    'username': username,
+                    'password_plaintext': new_password,
+                    'password_revealed': False,
+                },
+            )
+            n_ok += 1
 
         # Una sola sync ACL alla fine
-        try:
-            _sync_mosquitto_state()
-        except Exception as e:
-            self.message_user(request, f"Errore sync ACL: {e}", messages.WARNING)
+        if not _sync_mosquitto_state():
+            self.message_user(
+                request,
+                "Errore sync ACL/reload Mosquitto: le nuove credenziali potrebbero non essere attive (vedi log).",
+                messages.WARNING,
+            )
 
         if n_ok:
             self.message_user(
