@@ -1,3 +1,6 @@
+import ast
+import math
+import operator
 from fractions import Fraction
 from datetime import datetime, timedelta
 import logging as logger
@@ -7,6 +10,53 @@ import pytz
 # Helper to sanitize variable names
 def sanitize_variable_name(name):
     return name.replace("-", "_").replace(" ", "_")
+
+# Valutazione sicura delle formule delle ComputedVariable: solo aritmetica sulle
+# variabili del device. sympify usava eval() e permetteva di eseguire codice.
+_FORMULA_BIN_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
+    ast.BitXor: operator.pow,  # "^" era potenza con sympify: stesso significato
+}
+_FORMULA_UNARY_OPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+_FORMULA_FUNCS = {"abs": abs, "min": min, "max": max, "sqrt": math.sqrt, "round": round}
+
+
+def evaluate_formula(formula, variables):
+    """Valuta `formula` (es. "Pin - Pout", "(V * I) / 1000") con i valori in
+    `variables` ({nome: numero}). Solleva ValueError/ZeroDivisionError se la
+    formula non è valida, usa una variabile assente o divide per zero."""
+
+    def ev(node):
+        if isinstance(node, ast.Expression):
+            return ev(node.body)
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            return node.value
+        if isinstance(node, ast.Name):
+            if node.id not in variables:
+                raise ValueError(f"Unknown variable '{node.id}'")
+            return float(variables[node.id])
+        if isinstance(node, ast.BinOp) and type(node.op) in _FORMULA_BIN_OPS:
+            left, right = ev(node.left), ev(node.right)
+            if type(node.op) in (ast.Pow, ast.BitXor) and abs(right) > 100:
+                raise ValueError("Exponent too large")  # evita calcoli enormi
+            return _FORMULA_BIN_OPS[type(node.op)](left, right)
+        if isinstance(node, ast.UnaryOp) and type(node.op) in _FORMULA_UNARY_OPS:
+            return _FORMULA_UNARY_OPS[type(node.op)](ev(node.operand))
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id in _FORMULA_FUNCS and not node.keywords):
+            return _FORMULA_FUNCS[node.func.id](*[ev(arg) for arg in node.args])
+        raise ValueError(f"Unsupported element in formula: {type(node).__name__}")
+
+    try:
+        tree = ast.parse(str(formula).strip(), mode="eval")
+    except SyntaxError as e:
+        raise ValueError(f"Invalid formula syntax: {e}") from e
+    return float(ev(tree))
 
 # Helper to round float values to 2 decimal places
 def round_to_2_decimals(value):

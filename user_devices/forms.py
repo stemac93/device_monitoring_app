@@ -19,25 +19,28 @@ class DeviceForm(forms.ModelForm):
                 cleaned_data[field] = None  # or a default like 0 or ''
 
         elif protocol == 'modbus':
-            # Optionally: enforce required if not already done in model
+            # `is None`/'' e non `not value`: 0 è un indirizzo di partenza valido
             for field in modbus_fields:
                 value = cleaned_data.get(field)
-                if not value:
+                if value is None or value == '':
                     self.add_error(field, f"{field.replace('_', ' ').capitalize()} is required for Modbus.")
 
+            slave_id = cleaned_data.get('slave_id')
+            if slave_id is not None and not 1 <= slave_id <= 247:
+                self.add_error('slave_id', "Slave ID must be between 1 and 247.")
+
+            start_address = cleaned_data.get('start_address')
+            if start_address not in (None, ''):
+                try:
+                    int(str(start_address), 16)
+                except ValueError:
+                    self.add_error('start_address', "Start address must be hexadecimal (e.g. 0x0280).")
+
+            word_count = cleaned_data.get('word_count')
+            if word_count is not None and word_count <= 0:
+                self.add_error('word_count', "Word count must be greater than 0.")
+
         return cleaned_data
-
-    def save_model(self, request, obj, form, change):
-        protocol = obj.protocol
-
-        # Reset dei campi modbus se protocollo DLMS (già implementato da te)
-        if protocol == 'dlms':
-            obj.slave_id = None
-            obj.register_type = None
-            obj.start_address = None
-            obj.word_count = None
-
-        super().save_model(request, obj, form, change)
 
 
 #class DlmsMappingVariableForm(forms.ModelForm):

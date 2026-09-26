@@ -390,20 +390,14 @@ class TestMapVariables(TestCase):
         self.assertEqual(result["Var64S"]["unit"], "S")
 
 class TestComputeVariables(TestCase):
-    @patch('user_devices.functions.sympify')
     @patch('user_devices.functions.ComputedVariable.objects.filter')
-    def test_compute_variables_success(self, mock_filter, mock_sympify):
+    def test_compute_variables_success(self, mock_filter):
         """Test successful computation of derived variables"""
         # Setup mapped values
         mapped_values = {
             "Voltage": {"value": 230.0, "unit": "V"},
             "Current": {"value": 2.0, "unit": "A"}
         }
-
-        # Setup mock for sympify result
-        mock_expr = Mock()
-        mock_expr.evalf.return_value = 460.0
-        mock_sympify.return_value = mock_expr
 
         # Setup mock for ComputedVariable
         power_var = Mock()

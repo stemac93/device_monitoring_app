@@ -239,11 +239,19 @@ class GatewayMqttCredentials(models.Model):
         return f"{self.username} (gateway pk={self.gateway_id})"
 
     def reveal_once(self) -> str:
-        """Ritorna la password in chiaro UNA SOLA VOLTA, poi la azzera."""
-        if self.password_revealed:
-            return ""
-        pw = self.password_plaintext
-        self.password_plaintext = ""
-        self.password_revealed = True
-        self.save(update_fields=["password_plaintext", "password_revealed", "updated_at"])
+        """Ritorna la password in chiaro UNA SOLA VOLTA, poi la azzera.
+
+        La riga viene riletta sotto lock: due chiamate concorrenti non
+        ottengono entrambe la password."""
+        from django.db import transaction
+
+        with transaction.atomic():
+            locked = type(self).objects.select_for_update().get(pk=self.pk)
+            if locked.password_revealed:
+                return ""
+            pw = locked.password_plaintext
+            locked.password_plaintext = ""
+            locked.password_revealed = True
+            locked.save(update_fields=["password_plaintext", "password_revealed", "updated_at"])
+        self.password_plaintext, self.password_revealed = "", True
         return pw

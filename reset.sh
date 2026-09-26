@@ -6,8 +6,8 @@
 # Va usato solo su ambienti di sviluppo/test, MAI in produzione.
 #
 # Cosa fa:
-#   1. docker compose down -v        (rimuove container + volumi: DB e mosquitto/data)
-#   2. Cancella .env, mosquitto/config/passwd, mosquitto/config/acl, mosquitto/certs/*
+#   1. docker compose down -v        (rimuove container + volume postgres_data)
+#   2. Cancella .env, mosquitto/config/passwd, mosquitto/config/acl, mosquitto/certs/*, mosquitto/data/mosquitto.db
 #
 # Cosa NON tocca:
 #   - Il codice del progetto
@@ -27,7 +27,7 @@ RESET=$(tput sgr0 2>/dev/null || true)
 echo "${RED}ATTENZIONE${RESET}: questo script cancella:"
 echo "  - tutti i container del progetto"
 echo "  - il volume postgres_data (TUTTI I DATI DJANGO)"
-echo "  - il volume mosquitto data"
+echo "  - mosquitto/data/mosquitto.db (messaggi retained e sessioni del broker)"
 echo "  - .env"
 echo "  - mosquitto/config/passwd, mosquitto/config/acl"
 echo "  - mosquitto/certs/* (CA + cert server)"
@@ -44,6 +44,9 @@ rm -fv .env
 rm -fv mosquitto/config/passwd
 rm -fv mosquitto/config/acl
 rm -fv mosquitto/certs/{ca.crt,ca.key,server.crt,server.key,*.srl} 2>/dev/null
+# mosquitto/data è un bind mount, non un volume: `down -v` non lo svuota e i
+# messaggi retained dei vecchi gateway/device sopravviverebbero al reset
+rm -fv mosquitto/data/mosquitto.db
 
 echo
 echo "${YELLOW}Reset completato.${RESET} Ora puoi rilanciare ./bootstrap.sh per ripartire."

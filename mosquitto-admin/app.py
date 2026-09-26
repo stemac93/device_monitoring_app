@@ -24,7 +24,9 @@ Environment variables:
 import logging
 import os
 import re
+import secrets
 import subprocess
+import threading
 from pathlib import Path
 from typing import List, Optional
 
@@ -50,6 +52,26 @@ if not TOKEN:
 
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
+# FastAPI esegue gli endpoint sync in un threadpool: le modifiche a passwd/acl
+# vanno serializzate per non perdere scritture concorrenti
+_config_lock = threading.Lock()
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    """Scrive su file temporaneo e sostituisce: Mosquitto (al SIGHUP) non legge
+    mai un file scritto a metà."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(content)
+    if path.exists():
+        # stessi permessi dell'originale (Mosquitto 2 vuole passwd non world-readable)
+        st = path.stat()
+        os.chmod(tmp, st.st_mode)
+        try:
+            os.chown(tmp, st.st_uid, st.st_gid)
+        except PermissionError:
+            pass
+    os.replace(tmp, path)
+
 app = FastAPI(title="Mosquitto Admin Helper", version="1.0.0")
 
 
@@ -58,7 +80,8 @@ app = FastAPI(title="Mosquitto Admin Helper", version="1.0.0")
 def require_token(authorization: Optional[str] = Header(None)) -> None:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Missing bearer token")
-    if authorization[7:] != TOKEN:
+    # confronto a tempo costante
+    if not secrets.compare_digest(authorization[7:], TOKEN):
         raise HTTPException(403, "Invalid token")
 
 
@@ -132,7 +155,7 @@ def remove_user_from_passwd(username: str) -> bool:
     new_lines = [ln for ln in lines if not ln.startswith(f"{username}:")]
     if len(new_lines) == len(lines):
         return False
-    PASSWD_FILE.write_text("\n".join(new_lines) + ("\n" if new_lines else ""))
+    _atomic_write(PASSWD_FILE, "\n".join(new_lines) + ("\n" if new_lines else ""))
     return True
 
 
@@ -147,6 +170,9 @@ def write_acl(entries: List[AclEntry]) -> None:
         lines.append(f"user {e.username}")
         for t in e.topics:
             t = t.strip()
+            if "\n" in t or "\r" in t or not t:
+                # un a capo inietterebbe righe arbitrarie nell'ACL
+                raise HTTPException(400, f"Topic non valido: {t!r}")
             if t.startswith("rw "):
                 topic = t[3:].strip()
                 lines.append(f"topic readwrite {topic}")
@@ -160,7 +186,7 @@ def write_acl(entries: List[AclEntry]) -> None:
                 # default: readwrite
                 lines.append(f"topic readwrite {t}")
         lines.append("")
-    ACL_FILE.write_text("\n".join(lines))
+    _atomic_write(ACL_FILE, "\n".join(lines))
     logger.info("ACL rewritten with %d users", len(entries))
 
 
@@ -189,20 +215,23 @@ def health():
 @app.post("/users", dependencies=[Depends(require_token)])
 def add_or_update_user(payload: UserCreate):
     validate_username(payload.username)
-    run_mosquitto_passwd(payload.username, payload.password)
+    with _config_lock:
+        run_mosquitto_passwd(payload.username, payload.password)
     return {"ok": True, "username": payload.username}
 
 
 @app.delete("/users/{username}", dependencies=[Depends(require_token)])
 def remove_user(username: str):
     validate_username(username)
-    removed = remove_user_from_passwd(username)
+    with _config_lock:
+        removed = remove_user_from_passwd(username)
     return {"ok": True, "username": username, "removed": removed}
 
 
 @app.post("/acl", dependencies=[Depends(require_token)])
 def rewrite_acl(payload: AclWrite):
-    write_acl(payload.entries)
+    with _config_lock:
+        write_acl(payload.entries)
     return {"ok": True, "entries": len(payload.entries)}
 
 

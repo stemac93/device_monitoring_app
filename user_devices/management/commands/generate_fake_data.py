@@ -26,20 +26,25 @@ class Command(BaseCommand):
         days = options['days']
         clear_data = options['clear']
         
-        # Clear existing data if requested
+        # Clear existing data if requested: solo l'intervallo che verrà rigenerato
+        # (GatewayData) e solo i device "energy meter" (EnergyData), non tutto il DB
         if clear_data:
             self.stdout.write('Clearing existing data...')
-            gateway_data_count = GatewayData.objects.count()
-            energy_data_count = EnergyData.objects.count()
-            
+            since = timezone.make_aware(datetime.combine(timezone.localdate() - timedelta(days=days - 1), datetime.min.time()))
+            gateway_data_qs = GatewayData.objects.filter(timestamp__gte=since)
+            energy_data_qs = EnergyData.objects.filter(
+                timestamp__gte=since, device_name__name__icontains='energy meter')
+            gateway_data_count = gateway_data_qs.count()
+            energy_data_count = energy_data_qs.count()
+
             if gateway_data_count > 0 or energy_data_count > 0:
-                confirm = input(f'This will delete {gateway_data_count} gateway records and {energy_data_count} energy records. Continue? (y/N): ')
+                confirm = input(f'This will delete {gateway_data_count} gateway records and {energy_data_count} energy records since {since:%Y-%m-%d}. Continue? (y/N): ')
                 if confirm.lower() != 'y':
                     self.stdout.write(self.style.WARNING('Operation cancelled.'))
                     return
-                
-                GatewayData.objects.all().delete()
-                EnergyData.objects.all().delete()
+
+                gateway_data_qs.delete()
+                energy_data_qs.delete()
                 self.stdout.write(self.style.SUCCESS(f'Deleted {gateway_data_count} gateway records and {energy_data_count} energy records.'))
             else:
                 self.stdout.write('No existing data to clear.')
@@ -62,7 +67,7 @@ class Command(BaseCommand):
             
             # Generate data for each day
             for day_offset in range(days):
-                current_date = timezone.now().date() - timedelta(days=day_offset)
+                current_date = timezone.localdate() - timedelta(days=day_offset)
                 
                 # Generate data for each 15-minute interval of the day
                 for hour in range(24):
@@ -104,7 +109,7 @@ class Command(BaseCommand):
                 
                 # Generate energy data for each day
                 for day_offset in range(days):
-                    current_date = timezone.now().date() - timedelta(days=day_offset)
+                    current_date = timezone.localdate() - timedelta(days=day_offset)
                     
                     # Generate data for each 15-minute interval of the day
                     for hour in range(24):
@@ -117,14 +122,18 @@ class Command(BaseCommand):
                             # Generate realistic energy data based on time of day
                             energy_data = self.generate_energy_meter_data(hour, minute, day_offset)
                             
-                            # Create or update EnergyData record
-                            energy_record, created = EnergyData.objects.get_or_create(
-                                Gateway=energy_meter.Gateway,
-                                device_name=energy_meter,
-                                timestamp=timestamp,
-                                defaults={'data': energy_data}
-                            )
-                            
+                            # EnergyData.timestamp è auto_now_add: il valore passato a
+                            # create() viene ignorato, quindi lo imposto dopo con update()
+                            created = not EnergyData.objects.filter(
+                                device_name=energy_meter, timestamp=timestamp).exists()
+                            if created:
+                                energy_record = EnergyData.objects.create(
+                                    Gateway=energy_meter.Gateway,
+                                    device_name=energy_meter,
+                                    data=energy_data,
+                                )
+                                EnergyData.objects.filter(pk=energy_record.pk).update(timestamp=timestamp)
+
                             if created:
                                 total_energy_records += 1
                                 

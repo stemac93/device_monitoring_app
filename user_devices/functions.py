@@ -3,7 +3,6 @@ import time
 import json
 import requests
 import math
-from sympy import sympify
 from datetime import datetime, timezone, timedelta
 from pymodbus.client import ModbusTcpClient
 from .models import ModbusMappingVariable, ComputedVariable, DeviceData, EnergyData, GatewayData
@@ -11,7 +10,7 @@ from decimal import Decimal
 from django.db.models import Sum
 from django.db.models.expressions import RawSQL
 from fractions import Fraction
-from .helper_funcs import sanitize_variable_name, convert_value, convert_to_local_time, round_to_2_decimals, local_period_starts
+from .helper_funcs import sanitize_variable_name, convert_value, convert_to_local_time, round_to_2_decimals, local_period_starts, evaluate_formula
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -242,17 +241,19 @@ def compute_variables(mapped_values, device):
     for var in computed_vars:
         try:
 
-            "Work the data and adapt it to the sympify formula input data"
-            values = {key: value_data["value"] for key, value_data in mapped_values.items()}
+            # Variabili mappate + variabili calcolate prima di questa (ordine admin)
+            values = {
+                key: value_data["value"]
+                for key, value_data in {**mapped_values, **results}.items()
+                if isinstance(value_data, dict) and "value" in value_data
+            }
             logger.info(f"Worked data: {values}")
 
             # La formula NON va sanitizzata: trasformerebbe anche operatori e
             # spazi ("Pin - Pout" -> "Pin___Pout"). Nelle formule i nomi delle
             # variabili vanno scritti già con "_" al posto di spazi e "-".
-            formula = sympify(a=var.formula)
-            logger.info(f"formula: {formula}")
-
-            computed_value = float(formula.evalf(subs=values))
+            logger.info(f"formula: {var.formula}")
+            computed_value = evaluate_formula(var.formula, values)
             rounded_value = round_to_2_decimals(computed_value)
             logger.info(f"Computed value: {rounded_value}")
 
