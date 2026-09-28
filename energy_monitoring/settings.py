@@ -78,9 +78,10 @@ WSGI_APPLICATION = 'energy_monitoring.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'energy-db',
-        'USER': 'mac',
-        'PASSWORD': 'Giove2578!',
+        # Letti da .env (via docker-compose), stessi valori del container database
+        'NAME': os.getenv('POSTGRES_DB') or 'energy-db',
+        'USER': os.getenv('POSTGRES_USER') or 'mac',
+        'PASSWORD': os.getenv('POSTGRES_PASSWORD') or 'Giove2578!',
         'HOST': 'database',
         'PORT': 5432,
     }

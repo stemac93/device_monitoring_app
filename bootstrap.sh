@@ -180,11 +180,11 @@ EOF
 fi
 
 # Assicura .gitignore
-if ! grep -qxF '.env' .gitignore 2>/dev/null; then
+if ! grep -qxF 'mosquitto/config/passwd' .gitignore 2>/dev/null; then
     {
         echo ""
         echo "# Bootstrap-generated secrets"
-        echo ".env"
+        grep -qxF '.env' .gitignore 2>/dev/null || echo ".env"
         echo "mosquitto/config/passwd"
         echo "mosquitto/certs/*.key"
         echo "mosquitto/certs/*.crt"

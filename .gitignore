@@ -1,5 +1,13 @@
 .env
 docs/*
+
+# Bootstrap-generated secrets
+mosquitto/config/passwd
+mosquitto/certs/*.key
+mosquitto/certs/*.crt
+mosquitto/certs/*.srl
+mosquitto/data/
+mosquitto/log/
 docs/images/*
 
 .codegpt

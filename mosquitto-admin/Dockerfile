@@ -1,9 +1,10 @@
-FROM python:3.11-slim
+# Debian fissata: da trixie il CLI Docker è nel pacchetto separato docker-cli
+FROM python:3.11-slim-trixie
 
 # Docker CLI per esegure SIGHUP al container mosquitto.
 # Versione apt va benissimo, non serve l'engine completo.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends docker.io ca-certificates \
+    && apt-get install -y --no-install-recommends docker-cli ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
