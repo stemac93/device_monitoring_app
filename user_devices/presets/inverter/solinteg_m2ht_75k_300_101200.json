@@ -1,0 +1,760 @@
+{
+  "id": "inverter/solinteg_m2ht_75k_300_101200",
+  "category": "inverter",
+  "manufacturer": "Solinteg",
+  "model": "M2HT-75K-300 [solinteg]",
+  "source": {
+    "project": "homeassistant-solax-modbus",
+    "url": "https://github.com/wills106/homeassistant-solax-modbus",
+    "license": "Apache-2.0",
+    "commit": "ab73b9e1d154b1db9b98a29f33b49af87af4d191",
+    "file": "custom_components/solax_modbus/plugin_solinteg.py"
+  },
+  "power_variable": "AC Power",
+  "notes": [
+    "Prefissi numero di serie: model 4300, model 4308",
+    "Tipo plugin: 0x101200 (HYBRID MPPT6 X3)"
+  ],
+  "blocks": [
+    {
+      "register_type": "holding",
+      "start_address": "0x2AF2",
+      "word_count": 80
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x762E",
+      "word_count": 6
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x7918",
+      "word_count": 116
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x7D07",
+      "word_count": 2
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x80E8",
+      "word_count": 24
+    }
+  ],
+  "variables": [
+    {
+      "name": "Energy Generation Total",
+      "register_type": "holding",
+      "address": "0x7988",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Energy AC Generation Total",
+      "register_type": "holding",
+      "address": "0x2B0C",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Energy Generation Today",
+      "register_type": "holding",
+      "address": "0x791D",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Energy AC Generation Today",
+      "register_type": "holding",
+      "address": "0x2B0A",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inv Temperature Phase-R",
+      "register_type": "holding",
+      "address": "0x2B18",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inv Temperature Phase-S",
+      "register_type": "holding",
+      "address": "0x2B19",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inv Temperature Phase-T",
+      "register_type": "holding",
+      "address": "0x2B1A",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inv Temperature Radiator",
+      "register_type": "holding",
+      "address": "0x2B1B",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 1",
+      "register_type": "holding",
+      "address": "0x2B1E",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 1",
+      "register_type": "holding",
+      "address": "0x2B1F",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power 1",
+      "register_type": "holding",
+      "address": "0x2B36",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 2",
+      "register_type": "holding",
+      "address": "0x2B20",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 2",
+      "register_type": "holding",
+      "address": "0x2B21",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power 2",
+      "register_type": "holding",
+      "address": "0x2B38",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 3",
+      "register_type": "holding",
+      "address": "0x2B22",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 3",
+      "register_type": "holding",
+      "address": "0x2B23",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power 3",
+      "register_type": "holding",
+      "address": "0x2B3A",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 4",
+      "register_type": "holding",
+      "address": "0x2B24",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 4",
+      "register_type": "holding",
+      "address": "0x2B25",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power 4",
+      "register_type": "holding",
+      "address": "0x2B3C",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 5",
+      "register_type": "holding",
+      "address": "0x2B26",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 5",
+      "register_type": "holding",
+      "address": "0x2B27",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power 5",
+      "register_type": "holding",
+      "address": "0x2B3E",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 6",
+      "register_type": "holding",
+      "address": "0x2B28",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 6",
+      "register_type": "holding",
+      "address": "0x2B29",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power 6",
+      "register_type": "holding",
+      "address": "0x2B40",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power Total",
+      "register_type": "holding",
+      "address": "0x2B14",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Current L1",
+      "register_type": "holding",
+      "address": "0x2B02",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Current L2",
+      "register_type": "holding",
+      "address": "0x2B04",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Current L3",
+      "register_type": "holding",
+      "address": "0x2B06",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "AC Power",
+      "register_type": "holding",
+      "address": "0x2B08",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Frequency",
+      "register_type": "holding",
+      "address": "0x2B07",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Voltage",
+      "register_type": "holding",
+      "address": "0x762E",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Current",
+      "register_type": "holding",
+      "address": "0x762F",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery SOC",
+      "register_type": "holding",
+      "address": "0x80E8",
+      "unit": "%",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery SOH",
+      "register_type": "holding",
+      "address": "0x80E9",
+      "unit": "%",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Temperature",
+      "register_type": "holding",
+      "address": "0x80EB",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Rated Capacity",
+      "register_type": "holding",
+      "address": "0x7D07",
+      "unit": "Wh",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Bat Min Cell Voltage",
+      "register_type": "holding",
+      "address": "0x80F7",
+      "unit": "V",
+      "conversion_factor": "0.001",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Bat Min Cell Voltage ID",
+      "register_type": "holding",
+      "address": "0x80F6",
+      "unit": "",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Bat Max Cell Voltage",
+      "register_type": "holding",
+      "address": "0x80F5",
+      "unit": "V",
+      "conversion_factor": "0.001",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Bat Max Cell Voltage ID",
+      "register_type": "holding",
+      "address": "0x80F4",
+      "unit": "",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Charge Limit",
+      "register_type": "holding",
+      "address": "0x80FD",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Discharge Limit",
+      "register_type": "holding",
+      "address": "0x80FF",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Power",
+      "register_type": "holding",
+      "address": "0x7632",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Charge Total",
+      "register_type": "holding",
+      "address": "0x7984",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Charge Today",
+      "register_type": "holding",
+      "address": "0x791B",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Discharge Total",
+      "register_type": "holding",
+      "address": "0x7986",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Discharge Today",
+      "register_type": "holding",
+      "address": "0x791C",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Import Total",
+      "register_type": "holding",
+      "address": "0x7980",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Import Today",
+      "register_type": "holding",
+      "address": "0x7919",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Export Total",
+      "register_type": "holding",
+      "address": "0x797E",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Export Today",
+      "register_type": "holding",
+      "address": "0x7918",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "House Energy Total",
+      "register_type": "holding",
+      "address": "0x798A",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "House Energy Today",
+      "register_type": "holding",
+      "address": "0x791E",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Meter Active Power L1",
+      "register_type": "holding",
+      "address": "0x2AF2",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Meter Active Power L2",
+      "register_type": "holding",
+      "address": "0x2AF4",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Meter Active Power L3",
+      "register_type": "holding",
+      "address": "0x2AF6",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Meter Active Power",
+      "register_type": "holding",
+      "address": "0x2AF8",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Meter Grid Import Total",
+      "register_type": "holding",
+      "address": "0x2AFC",
+      "unit": "kWh",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Meter Grid Export Total",
+      "register_type": "holding",
+      "address": "0x2AFA",
+      "unit": "kWh",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Voltage L1",
+      "register_type": "holding",
+      "address": "0x2B01",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Voltage L2",
+      "register_type": "holding",
+      "address": "0x2B03",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Voltage L3",
+      "register_type": "holding",
+      "address": "0x2B05",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    }
+  ],
+  "computed": [
+    {
+      "name": "Power",
+      "unit": "W",
+      "formula": "AC_Power",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    }
+  ]
+}

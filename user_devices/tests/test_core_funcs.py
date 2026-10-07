@@ -40,9 +40,7 @@ class TestReadModbusRegisters(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"  # Hex address
-        device.word_count = 3  # 3 words
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=3)]
         device.slave_id = 1
         
         client = Mock()
@@ -58,9 +56,9 @@ class TestReadModbusRegisters(TestCase):
         # Verify correct address calculations and returned data
         self.assertIsNotNone(result)
         self.assertEqual(len(result), 3)  # Should have 3 values from our mock
-        self.assertEqual(result[640], 100)  # 0x0280 = 640 decimal
-        self.assertEqual(result[641], 200)
-        self.assertEqual(result[642], 300)
+        self.assertEqual(result[("input", 640)], 100)  # 0x0280 = 640 decimal
+        self.assertEqual(result[("input", 641)], 200)
+        self.assertEqual(result[("input", 642)], 300)
         
         # Verify client was called with correct parameters
         client.read_input_registers.assert_called_with(
@@ -74,9 +72,7 @@ class TestReadModbusRegisters(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 2
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=2)]
         device.slave_id = 1
         
         client = Mock()
@@ -101,9 +97,7 @@ class TestReadModbusRegisters(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 2
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=2)]
         device.slave_id = 1
         
         client = Mock()
@@ -128,18 +122,18 @@ class TestMapVariables(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 2
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=2)]
         device.slave_id = 1
         
         base_values = {
-            0x0280: 100,  # Voltage raw value
-            0x0281: 200,  # Current raw value
+            ("input", 0x0280): 100,  # Voltage raw value
+            ("input", 0x0281): 200,  # Current raw value
         }
         
         # Setup mock mappings
         voltage_mapping = Mock()
+        voltage_mapping.register_type = "input"
+        voltage_mapping.offset = 0
         voltage_mapping.var_name = "Voltage"
         voltage_mapping.address = "0x0280"
         voltage_mapping.conversion_factor = "0.1"
@@ -147,6 +141,10 @@ class TestMapVariables(TestCase):
         voltage_mapping.bit_length = 16
         
         current_mapping = Mock()
+        
+        current_mapping.register_type = "input"
+        
+        current_mapping.offset = 0
         current_mapping.var_name = "Current"
         current_mapping.address = "0x0281"
         current_mapping.conversion_factor = "0.01"
@@ -172,15 +170,15 @@ class TestMapVariables(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0284"
-        device.word_count = 1
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0284", word_count=1)]
         device.slave_id = 1
 
-        base_values = {0x0284: 300}
+        base_values = {("input", 0x0284): 300}
         
         # Test with fractional conversion factor
         power_mapping = Mock()
+        power_mapping.register_type = "input"
+        power_mapping.offset = 0
         power_mapping.var_name = "Power"
         power_mapping.address = "0x0284"
         power_mapping.conversion_factor = "1/10"
@@ -202,15 +200,15 @@ class TestMapVariables(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 1
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=1)]
         device.slave_id = 1
         
-        base_values = {0x0280: 100}
+        base_values = {("input", 0x0280): 100}
         
         # Setup mapping with invalid conversion factor
         invalid_mapping = Mock()
+        invalid_mapping.register_type = "input"
+        invalid_mapping.offset = 0
         invalid_mapping.var_name = "Invalid"
         invalid_mapping.address = "0x0280"
         invalid_mapping.conversion_factor = "invalid"
@@ -218,6 +216,8 @@ class TestMapVariables(TestCase):
         
         # Setup mapping with missing address
         missing_mapping = Mock()
+        missing_mapping.register_type = "input"
+        missing_mapping.offset = 0
         missing_mapping.var_name = "Missing"
         missing_mapping.address = "0x0290"  # Not in base_values
         missing_mapping.conversion_factor = "0.1"
@@ -241,14 +241,16 @@ class TestMapVariables(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 1
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=1)]
         device.slave_id = 1
 
-        base_values = {0x0280: 0x1234}
+        base_values = {("input", 0x0280): 0x1234}
 
         mapping = Mock()
+
+        mapping.register_type = "input"
+
+        mapping.offset = 0
         mapping.var_name = "Var16U"
         mapping.address = "0x0280"
         mapping.conversion_factor = "1"
@@ -266,13 +268,13 @@ class TestMapVariables(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 1
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=1)]
         device.slave_id = 1
         
-        base_values = {0x0280: 0xFFFF}  # -1 in signed 16-bit
+        base_values = {("input", 0x0280): 0xFFFF}  # -1 in signed 16-bit
         mapping = Mock()
+        mapping.register_type = "input"
+        mapping.offset = 0
         mapping.var_name = "Var16S"
         mapping.address = "0x0280"
         mapping.conversion_factor = "1"
@@ -290,14 +292,14 @@ class TestMapVariables(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 2
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=2)]
         device.slave_id = 1
         
         # 0x12345678 split into two 16-bit registers: 0x1234, 0x5678
-        base_values = {0x0280: 0x1234, 0x0281: 0x5678}
+        base_values = {("input", 0x0280): 0x1234, ("input", 0x0281): 0x5678}
         mapping = Mock()
+        mapping.register_type = "input"
+        mapping.offset = 0
         mapping.var_name = "Var32U"
         mapping.address = "0x0280"
         mapping.conversion_factor = "1"
@@ -317,14 +319,14 @@ class TestMapVariables(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 2
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=2)]
         device.slave_id = 1
         
         # 0xFFFF8000 is -32768 in signed 32-bit
-        base_values = {0x0280: 0xFFFF, 0x0281: 0x8000}
+        base_values = {("input", 0x0280): 0xFFFF, ("input", 0x0281): 0x8000}
         mapping = Mock()
+        mapping.register_type = "input"
+        mapping.offset = 0
         mapping.var_name = "Var32S"
         mapping.address = "0x0280"
         mapping.conversion_factor = "1"
@@ -344,14 +346,14 @@ class TestMapVariables(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 4
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=4)]
         device.slave_id = 1
         
         # 0x0123456789ABCDEF split into four 16-bit registers
-        base_values = {0x0280: 0x0123, 0x0281: 0x4567, 0x0282: 0x89AB, 0x0283: 0xCDEF}
+        base_values = {("input", 0x0280): 0x0123, ("input", 0x0281): 0x4567, ("input", 0x0282): 0x89AB, ("input", 0x0283): 0xCDEF}
         mapping = Mock()
+        mapping.register_type = "input"
+        mapping.offset = 0
         mapping.var_name = "Var64U"
         mapping.address = "0x0280"
         mapping.conversion_factor = "1"
@@ -371,14 +373,14 @@ class TestMapVariables(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 4
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=4)]
         device.slave_id = 1
         
         # 0xFFFFFFFF80000000 is -2147483648 in signed 64-bit
-        base_values = {0x0280: 0xFFFF, 0x0281: 0xFFFF, 0x0282: 0x8000, 0x0283: 0x0000}
+        base_values = {("input", 0x0280): 0xFFFF, ("input", 0x0281): 0xFFFF, ("input", 0x0282): 0x8000, ("input", 0x0283): 0x0000}
         mapping = Mock()
+        mapping.register_type = "input"
+        mapping.offset = 0
         mapping.var_name = "Var64S"
         mapping.address = "0x0280"
         mapping.conversion_factor = "1"
@@ -685,9 +687,7 @@ class TestDeviceAvailability(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 1
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=1)]
         device.slave_id = 1
         
         # Mock DeviceData queryset
@@ -714,9 +714,7 @@ class TestDeviceAvailability(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 1
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=1)]
         device.slave_id = 1
         
         # Mock DeviceData queryset that raises exception
@@ -742,9 +740,7 @@ class TestDeviceAvailability(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 1
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=1)]
         device.slave_id = 1
         
         # Mock DeviceData queryset
@@ -772,9 +768,7 @@ class TestDeviceAvailability(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 1
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=1)]
         device.slave_id = 1
         
         # Mock DST spring forward scenario - 2:30 AM local time (which doesn't exist)
@@ -819,9 +813,7 @@ class TestDeviceAvailability(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 1
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=1)]
         device.slave_id = 1
         
         # Mock DST fall back scenario - 2:30 AM local time (occurs twice)
@@ -859,9 +851,7 @@ class TestDeviceAvailability(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 1
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=1)]
         device.slave_id = 1
         
         # Mock 6:00 AM local time (should have expected data count)
@@ -904,9 +894,7 @@ class TestDeviceAvailability(TestCase):
         device = Mock()
         device.name = "Test Device"
         device.protocol = "modbus"
-        device.register_type = "input"
-        device.start_address = "0x0280"
-        device.word_count = 1
+        device.read_blocks.all.return_value = [Mock(register_type="input", start_address="0x0280", word_count=1)]
         device.slave_id = 1
         
         # Test DST transition times

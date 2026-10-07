@@ -119,33 +119,34 @@ def read_dlms_values(device):
 
 """
 Reads Modbus registers for a given device.
-Handles multiple reads if needed due to word limits.
+Reads every ModbusReadBlock of the device, splitting each block in chunks
+of MAX_WORDS_PER_READ. Returns {(register_type, address): raw_value}.
 """
 def read_modbus_registers(device, client):
     try:
-        start_address = int(device.start_address, 16)
-        logger.info(f"Start Address: {start_address}")
-        word_count = device.word_count 
-        logger.info(f"Word count: {word_count}")
-        
-        # Split reads into chunks of MAX_WORDS_PER_READ
         base_values = {}
-        for offset in range(0, word_count, MAX_WORDS_PER_READ):
-            current_address = start_address + offset
-            logger.info(f"Start Address: {current_address}")
-            words_to_read = min(MAX_WORDS_PER_READ, word_count - offset)
-            if hasattr(device, 'register_type') and device.register_type == 'holding':
-                response = client.read_holding_registers(address=current_address, count=words_to_read, device_id=device.slave_id)
-            else:
-                response = client.read_input_registers(address=current_address, count=words_to_read, device_id=device.slave_id)
-            if response.isError():
-                logger.info(f"Error reading address {current_address} for device {device.name}")
-                continue
-            logger.info(f"Response: {response.registers}")
-            # Map raw values to the address space
-            for i, value in enumerate(response.registers):
-                base_values[current_address + i] = value
-            time.sleep(0.1)
+        for block in device.read_blocks.all():
+            start_address = int(block.start_address, 16)
+            word_count = block.word_count
+            logger.info(f"Block {block.register_type} start: {start_address}, word count: {word_count}")
+
+            # Split reads into chunks of MAX_WORDS_PER_READ
+            for offset in range(0, word_count, MAX_WORDS_PER_READ):
+                current_address = start_address + offset
+                logger.info(f"Start Address: {current_address}")
+                words_to_read = min(MAX_WORDS_PER_READ, word_count - offset)
+                if block.register_type == 'holding':
+                    response = client.read_holding_registers(address=current_address, count=words_to_read, device_id=device.slave_id)
+                else:
+                    response = client.read_input_registers(address=current_address, count=words_to_read, device_id=device.slave_id)
+                if response.isError():
+                    logger.info(f"Error reading address {current_address} for device {device.name}")
+                    continue
+                logger.info(f"Response: {response.registers}")
+                # Map raw values to the address space
+                for i, value in enumerate(response.registers):
+                    base_values[(block.register_type, current_address + i)] = value
+                time.sleep(0.1)
         return base_values
 
     except Exception as e:
@@ -173,8 +174,8 @@ def map_variables(base_values, device):
             registers = []
             for i in range(num_registers):
                 reg_addr = address + i  # ogni registro Modbus è 1 word
-                if reg_addr in base_values:
-                    registers.append(base_values[reg_addr])
+                if (mapping.register_type, reg_addr) in base_values:
+                    registers.append(base_values[(mapping.register_type, reg_addr)])
                 else:
                     raise Exception(f"Missing register at address {hex(reg_addr)} for variable {mapping.var_name}")
 
@@ -190,7 +191,7 @@ def map_variables(base_values, device):
                 raw_value = int.from_bytes(raw_bytes, byteorder='little', signed=mapping.is_signed)
             
             # Applico il conversion factor
-            converted_value = convert_value(raw_value, mapping.conversion_factor)
+            converted_value = convert_value(raw_value - (mapping.offset or 0), mapping.conversion_factor)
 
             # Salvo il valore nel dizionario
             sanitized_name = sanitize_variable_name(mapping.var_name)

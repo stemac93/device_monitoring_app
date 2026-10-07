@@ -1,0 +1,364 @@
+{
+  "id": "inverter/swatten_gen_hybrid_x3_1201",
+  "category": "inverter",
+  "manufacturer": "Swatten",
+  "model": "GEN HYBRID X3 [swatten]",
+  "source": {
+    "project": "homeassistant-solax-modbus",
+    "url": "https://github.com/wills106/homeassistant-solax-modbus",
+    "license": "Apache-2.0",
+    "commit": "ab73b9e1d154b1db9b98a29f33b49af87af4d191",
+    "file": "custom_components/solax_modbus/plugin_swatten.py"
+  },
+  "power_variable": "Total Output Power",
+  "notes": [
+    "Prefissi numero di serie: SiH10KTH, SiH5KTH, SiH6KTH, SiH8KTH",
+    "Tipo plugin: 0x1201 (GEN HYBRID X3)"
+  ],
+  "blocks": [
+    {
+      "register_type": "input",
+      "start_address": "0x0FDD",
+      "word_count": 24
+    },
+    {
+      "register_type": "input",
+      "start_address": "0x1066",
+      "word_count": 1
+    },
+    {
+      "register_type": "input",
+      "start_address": "0x1519",
+      "word_count": 1
+    },
+    {
+      "register_type": "input",
+      "start_address": "0x2712",
+      "word_count": 46
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x0FF5",
+      "word_count": 1
+    }
+  ],
+  "variables": [
+    {
+      "name": "PV Voltage 1",
+      "register_type": "input",
+      "address": "0x0FDD",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 1",
+      "register_type": "input",
+      "address": "0x0FDE",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 2",
+      "register_type": "input",
+      "address": "0x0FDF",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 2",
+      "register_type": "input",
+      "address": "0x0FE0",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power Total",
+      "register_type": "input",
+      "address": "0x0FE3",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Voltage L1",
+      "register_type": "input",
+      "address": "0x0FE5",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Voltage L2",
+      "register_type": "input",
+      "address": "0x0FE6",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Voltage L3",
+      "register_type": "input",
+      "address": "0x0FE7",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Current L1",
+      "register_type": "input",
+      "address": "0x0FE8",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Current L2",
+      "register_type": "input",
+      "address": "0x0FE9",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Current L3",
+      "register_type": "input",
+      "address": "0x0FEA",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total Output Power",
+      "register_type": "input",
+      "address": "0x0FF1",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Reactive Power",
+      "register_type": "input",
+      "address": "0x0FF3",
+      "unit": "var",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Power Factor",
+      "register_type": "holding",
+      "address": "0x0FF5",
+      "unit": "",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Frequency",
+      "register_type": "input",
+      "address": "0x1066",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Measured Power",
+      "register_type": "input",
+      "address": "0x1519",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Today s PV Generation",
+      "register_type": "input",
+      "address": "0x2712",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total PV Generation",
+      "register_type": "input",
+      "address": "0x2712",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total Consumption",
+      "register_type": "input",
+      "address": "0x2718",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Voltage",
+      "register_type": "input",
+      "address": "0x2724",
+      "unit": "V",
+      "conversion_factor": "0",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Current",
+      "register_type": "input",
+      "address": "0x2725",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Power",
+      "register_type": "input",
+      "address": "0x2726",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery State of Capacity",
+      "register_type": "input",
+      "address": "0x2727",
+      "unit": "%",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery State of Health",
+      "register_type": "input",
+      "address": "0x2728",
+      "unit": "%",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Today s Import Energy",
+      "register_type": "input",
+      "address": "0x2734",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total Import Energy",
+      "register_type": "input",
+      "address": "0x2735",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Today s Export Energy",
+      "register_type": "input",
+      "address": "0x273D",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total Export Energy",
+      "register_type": "input",
+      "address": "0x273E",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    }
+  ],
+  "computed": [
+    {
+      "name": "Power",
+      "unit": "W",
+      "formula": "Total_Output_Power",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    }
+  ]
+}

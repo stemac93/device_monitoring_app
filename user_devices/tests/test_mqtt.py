@@ -20,15 +20,16 @@ class ParseRegisterFieldTests(TestCase):
     def test_parses_hex_addresses(self):
         from user_devices.mqtt.consumer import _parse_register_field
 
-        self.assertEqual(_parse_register_field("reg_0x0280"), 0x280)
-        self.assertEqual(_parse_register_field("reg_0x0000"), 0)
-        self.assertEqual(_parse_register_field("reg_0xffff"), 0xFFFF)
+        self.assertEqual(_parse_register_field("ir_0x0280"), ("input", 0x280))
+        self.assertEqual(_parse_register_field("ir_0x0000"), ("input", 0))
+        self.assertEqual(_parse_register_field("hr_0xffff"), ("holding", 0xFFFF))
 
     def test_rejects_non_reg_fields(self):
         from user_devices.mqtt.consumer import _parse_register_field
 
         self.assertIsNone(_parse_register_field("foo"))
-        self.assertIsNone(_parse_register_field("reg_xyz"))
+        self.assertIsNone(_parse_register_field("ir_xyz"))
+        self.assertIsNone(_parse_register_field("reg_0x0280"))
         self.assertIsNone(_parse_register_field(""))
 
 
@@ -45,9 +46,9 @@ class HandleRawTests(TestCase):
                 "timestamp": 1745161800,
                 "tags": {"gateway_id": "1", "device_id": "42", "slave_id": "3"},
                 "fields": {
-                    "reg_0x0280": 2301,
-                    "reg_0x0281": 15,
-                    "reg_0x0282": 48923,
+                    "ir_0x0280": 2301,
+                    "ir_0x0281": 15,
+                    "hr_0x0282": 48923,
                 },
             }
         ).encode("utf-8")
@@ -57,7 +58,7 @@ class HandleRawTests(TestCase):
         mock_put.assert_called_once()
         args, kwargs = mock_put.call_args
         self.assertEqual(args[0], 42)  # device_pk
-        self.assertEqual(args[1], {0x280: 2301, 0x281: 15, 0x282: 48923})
+        self.assertEqual(args[1], {("input", 0x280): 2301, ("input", 0x281): 15, ("holding", 0x282): 48923})
         self.assertEqual(kwargs.get("ts"), 1745161800.0)
 
     @patch("user_devices.mqtt.consumer.put_raw")
@@ -82,7 +83,7 @@ class HandleRawTests(TestCase):
         payload = json.dumps(
             {
                 "tags": {"gateway_id": "1", "device_id": "99"},
-                "fields": {"reg_0x0000": 1},
+                "fields": {"ir_0x0000": 1},
             }
         ).encode("utf-8")
 
@@ -98,16 +99,16 @@ class HandleRawTests(TestCase):
             {
                 "tags": {"gateway_id": "1", "device_id": "42"},
                 "fields": {
-                    "reg_0x0100": 111,
+                    "hr_0x0100": 111,
                     "not_a_register": 999,
-                    "reg_0x0101": 222,
+                    "hr_0x0101": 222,
                 },
             }
         ).encode("utf-8")
 
         _handle_raw("1", "42", payload)
         args, _ = mock_put.call_args
-        self.assertEqual(args[1], {0x100: 111, 0x101: 222})
+        self.assertEqual(args[1], {("holding", 0x100): 111, ("holding", 0x101): 222})
 
 
 class CacheRoundtripTests(TestCase):
@@ -135,16 +136,34 @@ class CacheRoundtripTests(TestCase):
     def test_put_and_get_round_trip(self):
         from user_devices.mqtt.cache import put_raw, get_raw
 
-        put_raw(42, {0x280: 2301, 0x281: 15}, ts=time.time())
+        put_raw(42, {("input", 0x280): 2301, ("holding", 0x281): 15}, ts=time.time())
         result = get_raw(42)
 
-        self.assertEqual(result, {0x280: 2301, 0x281: 15})
+        self.assertEqual(result, {("input", 0x280): 2301, ("holding", 0x281): 15})
+
+    def test_messages_for_different_blocks_are_merged(self):
+        """Telegraf può pubblicare un messaggio per blocco: lo snapshot li unisce."""
+        from user_devices.mqtt.cache import put_raw, get_raw
+
+        put_raw(42, {("input", 0x10): 1}, ts=time.time())
+        put_raw(42, {("holding", 0x20): 2}, ts=time.time())
+
+        self.assertEqual(get_raw(42), {("input", 0x10): 1, ("holding", 0x20): 2})
+
+    def test_stale_registers_are_dropped(self):
+        """Un registro non più aggiornato viene scartato, gli altri restano."""
+        from user_devices.mqtt.cache import put_raw, get_raw
+
+        put_raw(42, {("input", 0x10): 1}, ts=time.time() - 600)
+        put_raw(42, {("holding", 0x20): 2}, ts=time.time())
+
+        self.assertEqual(get_raw(42), {("holding", 0x20): 2})
 
     def test_stale_entry_returns_none(self):
         from user_devices.mqtt.cache import put_raw, get_raw
 
         # Simula un'entry di 10 minuti fa (oltre la freshness default di 5 min)
-        put_raw(42, {0x0: 1}, ts=time.time() - 600)
+        put_raw(42, {("input", 0x0): 1}, ts=time.time() - 600)
         result = get_raw(42)
 
         self.assertIsNone(result)

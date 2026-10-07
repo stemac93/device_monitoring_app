@@ -9,9 +9,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const modbusFields = document.querySelectorAll(`
             .form-row.field-slave_id,
-            .form-row.field-register_type,
-            .form-row.field-start_address,
-            .form-row.field-word_count
+            .form-row.field-apply_preset
         `);
 
         if (!protocolSelect) return;
@@ -33,15 +31,15 @@ document.addEventListener('DOMContentLoaded', function () {
 
         console.log('Value:', value);
 
-        const modbusInline = document.querySelector('.modbus-inline');
-        const dlmsInline = document.querySelector('.dlms-inline');
+        const modbusInlines = document.querySelectorAll('.modbus-inline');
+        const dlmsInlines = document.querySelectorAll('.dlms-inline');
     
         if (value === 'modbus') {
-            modbusInline?.classList.remove('hidden');
-            dlmsInline?.classList.add('hidden');
+            modbusInlines.forEach(el => el.classList.remove('hidden'));
+            dlmsInlines.forEach(el => el.classList.add('hidden'));
         } else if (value === 'dlms') {
-            modbusInline?.classList.add('hidden');
-            dlmsInline?.classList.remove('hidden');
+            modbusInlines.forEach(el => el.classList.add('hidden'));
+            dlmsInlines.forEach(el => el.classList.remove('hidden'));
         }
     }
 

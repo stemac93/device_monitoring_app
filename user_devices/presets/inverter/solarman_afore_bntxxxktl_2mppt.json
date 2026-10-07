@@ -1,0 +1,236 @@
+{
+  "id": "inverter/solarman_afore_bntxxxktl_2mppt",
+  "category": "inverter",
+  "manufacturer": "Afore",
+  "model": "BNTxxxKTL-2mppt (afore_BNTxxxKTL-2mppt)",
+  "source": {
+    "project": "ha-solarman",
+    "url": "https://github.com/davidrapan/ha-solarman",
+    "license": "MIT",
+    "commit": "ac1d88b83268beeb0511b8a1b7fc8e17deddc044",
+    "file": "custom_components/solarman/inverter_definitions/afore_BNTxxxKTL-2mppt.yaml"
+  },
+  "power_variable": "Power",
+  "notes": [],
+  "blocks": [
+    {
+      "register_type": "input",
+      "start_address": "0x0001",
+      "word_count": 23
+    }
+  ],
+  "variables": [
+    {
+      "name": "Grid L1 Voltage",
+      "register_type": "input",
+      "address": "0x0001",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid L2 Voltage",
+      "register_type": "input",
+      "address": "0x0002",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid L3 Voltage",
+      "register_type": "input",
+      "address": "0x0003",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid L1 Current",
+      "register_type": "input",
+      "address": "0x0004",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid L2 Current",
+      "register_type": "input",
+      "address": "0x0005",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid L3 Current",
+      "register_type": "input",
+      "address": "0x0006",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Frequency",
+      "register_type": "input",
+      "address": "0x000D",
+      "unit": "Hz",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 Voltage",
+      "register_type": "input",
+      "address": "0x0007",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 Current",
+      "register_type": "input",
+      "address": "0x0008",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Voltage",
+      "register_type": "input",
+      "address": "0x0009",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Current",
+      "register_type": "input",
+      "address": "0x000A",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV3 Voltage",
+      "register_type": "input",
+      "address": "0x000B",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV3 Current",
+      "register_type": "input",
+      "address": "0x000C",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "DC Temperature",
+      "register_type": "input",
+      "address": "0x000E",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Temperature",
+      "register_type": "input",
+      "address": "0x000F",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Power",
+      "register_type": "input",
+      "address": "0x0012",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    },
+    {
+      "name": "Today Production",
+      "register_type": "input",
+      "address": "0x0010",
+      "unit": "Wh",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Today Production time",
+      "register_type": "input",
+      "address": "0x0013",
+      "unit": "s",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total Production",
+      "register_type": "input",
+      "address": "0x0016",
+      "unit": "Wh",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    }
+  ],
+  "computed": []
+}

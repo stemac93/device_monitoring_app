@@ -5,9 +5,10 @@ Uso:
     python manage.py export_telegraf_config <gateway_pk> [--out telegraf.conf] [--interval 30s]
 
 Per ogni Device modbus abilitato del gateway, produce una sezione
-[[inputs.modbus]] con configuration_type = "request" che chiede un blocco
-di `word_count` registri a partire da `start_address`.
-Telegraf pubblicherà ciascun registro come field `reg_0xNNNN`.
+[[inputs.modbus]] con configuration_type = "request" e un
+[[inputs.modbus.request]] per ogni ModbusReadBlock del device.
+Telegraf pubblicherà ciascun registro come field `ir_0xNNNN` (input)
+o `hr_0xNNNN` (holding).
 
 L'output MQTT è unico (un solo [[outputs.mqtt_v2]]) e topic-routing con
 `topic = "plants/{gateway_pk}/devices/{device_pk}/raw"` usando tag
@@ -33,35 +34,55 @@ def _chunks(start, count, size):
         off += n
 
 
-def _render_request_block(device: Device, gateway: Gateway, interval: str) -> str:
+def _render_block_request(device: Device, gateway: Gateway, block) -> str:
     try:
-        start_address = int(device.start_address, 16)
+        start_address = int(block.start_address, 16)
     except (ValueError, TypeError) as exc:
         raise CommandError(
-            f"Device '{device.name}' (pk={device.pk}) ha start_address non valido: "
-            f"{device.start_address!r}"
+            f"Device '{device.name}' (pk={device.pk}) ha un blocco con start_address non valido: "
+            f"{block.start_address!r}"
         ) from exc
 
-    word_count = int(device.word_count or 0)
+    word_count = int(block.word_count or 0)
     if word_count <= 0:
         raise CommandError(
-            f"Device '{device.name}' (pk={device.pk}) ha word_count <= 0"
+            f"Device '{device.name}' (pk={device.pk}) ha un blocco con word_count <= 0"
         )
 
-    register_type = "holding" if device.register_type == "holding" else "input"
+    register_type = "holding" if block.register_type == "holding" else "input"
+    prefix = "hr" if register_type == "holding" else "ir"
 
     # Genera il blocco [[inputs.modbus.request.fields]] per ogni registro.
-    # Telegraf richiede un field per address; chiamiamoli reg_0xNNNN.
+    # Telegraf richiede un field per address; chiamiamoli ir_0xNNNN / hr_0xNNNN.
     field_lines = []
     for addr in range(start_address, start_address + word_count):
         field_lines.append(
-            f'    {{ address = {addr}, name = "reg_0x{addr:04x}", type = "UINT16" }},'
+            f'    {{ address = {addr}, name = "{prefix}_0x{addr:04x}", type = "UINT16" }},'
         )
     fields_toml = "\n".join(field_lines)
 
-    # Blocchi di request: Telegraf li aggrega in burst Modbus efficienti.
-    # Qui un singolo request copre tutto il range: Telegraf internamente
-    # spezza in pacchetti <= 125 registri.
+    # Un request per blocco: Telegraf internamente spezza in pacchetti
+    # <= 125 registri.
+    return f"""
+  [[inputs.modbus.request]]
+    slave_id = {int(device.slave_id)}
+    byte_order = "ABCD"
+    register = "{register_type}"
+    fields = [
+{fields_toml}
+    ]
+    tags = {{ gateway_id = "{gateway.pk}", device_id = "{device.pk}" }}
+""".rstrip()
+
+
+def _render_request_block(device: Device, gateway: Gateway, interval: str) -> str:
+    blocks = list(device.read_blocks.all())
+    if not blocks:
+        raise CommandError(
+            f"Device '{device.name}' (pk={device.pk}) non ha blocchi di lettura Modbus"
+        )
+    requests = "\n".join(_render_block_request(device, gateway, b) for b in blocks)
+
     return f"""
 # -----------------------------------------------------------------------------
 # Device: {device.name} (pk={device.pk}, slave_id={device.slave_id}, port={device.port})
@@ -76,15 +97,7 @@ def _render_request_block(device: Device, gateway: Gateway, interval: str) -> st
   transmission_mode = "TCP"
   configuration_type = "request"
   interval = "{interval}"
-
-  [[inputs.modbus.request]]
-    slave_id = {int(device.slave_id)}
-    byte_order = "ABCD"
-    register = "{register_type}"
-    fields = [
-{fields_toml}
-    ]
-    tags = {{ gateway_id = "{gateway.pk}", device_id = "{device.pk}" }}
+{requests}
 """.strip()
 
 

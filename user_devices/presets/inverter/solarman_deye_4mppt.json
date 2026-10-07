@@ -1,0 +1,242 @@
+{
+  "id": "inverter/solarman_deye_4mppt",
+  "category": "inverter",
+  "manufacturer": "Deye",
+  "model": "4mppt (deye_4mppt)",
+  "source": {
+    "project": "home_assistant_solarman",
+    "url": "https://github.com/StephanJoubert/home_assistant_solarman",
+    "license": "Apache-2.0",
+    "commit": "d4296b16415dc9187a74fbaf249bfd71417c38aa",
+    "file": "custom_components/solarman/inverter_definitions/deye_4mppt.yaml"
+  },
+  "power_variable": "Total AC Output Power Active",
+  "notes": [],
+  "blocks": [
+    {
+      "register_type": "holding",
+      "start_address": "0x0010",
+      "word_count": 101
+    }
+  ],
+  "variables": [
+    {
+      "name": "PV1 Voltage",
+      "register_type": "holding",
+      "address": "0x006D",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Voltage",
+      "register_type": "holding",
+      "address": "0x006F",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV3 Voltage",
+      "register_type": "holding",
+      "address": "0x0071",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV4 Voltage",
+      "register_type": "holding",
+      "address": "0x0073",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 Current",
+      "register_type": "holding",
+      "address": "0x006E",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Current",
+      "register_type": "holding",
+      "address": "0x0070",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV3 Current",
+      "register_type": "holding",
+      "address": "0x0072",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV4 Current",
+      "register_type": "holding",
+      "address": "0x0074",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Daily Production",
+      "register_type": "holding",
+      "address": "0x003C",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total Production",
+      "register_type": "holding",
+      "address": "0x003F",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Active Power Regulations",
+      "register_type": "holding",
+      "address": "0x0028",
+      "unit": "%",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "AC Voltage",
+      "register_type": "holding",
+      "address": "0x0049",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Current",
+      "register_type": "holding",
+      "address": "0x004C",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "AC Output Frequency",
+      "register_type": "holding",
+      "address": "0x004F",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total AC Output Power Active",
+      "register_type": "holding",
+      "address": "0x0056",
+      "unit": "W",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Radiator Temperature",
+      "register_type": "holding",
+      "address": "0x005A",
+      "unit": "°C",
+      "conversion_factor": "0.01",
+      "offset": 1000,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Rated Power",
+      "register_type": "holding",
+      "address": "0x0010",
+      "unit": "W",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Start-up Self-checking Time",
+      "register_type": "holding",
+      "address": "0x0015",
+      "unit": "s",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Power Factor Regulation",
+      "register_type": "holding",
+      "address": "0x0032",
+      "unit": "",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    }
+  ],
+  "computed": [
+    {
+      "name": "Power",
+      "unit": "W",
+      "formula": "Total_AC_Output_Power_Active",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    }
+  ]
+}

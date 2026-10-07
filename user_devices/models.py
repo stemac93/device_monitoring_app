@@ -33,8 +33,6 @@ class Device(models.Model):
     name = models.CharField(max_length=100, unique=True)
     is_enabled = models.BooleanField(default=False, help_text="Enable/Disable monitoring for this device")
     slave_id = models.IntegerField(default=-1, help_text="Slave ID of the device(nr between 1 to 247)", null=True, blank=True)
-    start_address = models.CharField(default = 0, help_text="Starting Modbus address in hexadecimal (e.g., 0x0280)", null=True, blank=True)
-    word_count = models.PositiveIntegerField(default=1, help_text="Total number of consecutive words to read", null=True, blank=True)
     port = models.IntegerField(default=0)
     availability = models.FloatField(default=0, help_text="Availability of the device")
     show_energy = models.BooleanField(default=False, help_text="Show real time energy production/consumption")
@@ -43,19 +41,17 @@ class Device(models.Model):
     show_energy_monthly = models.BooleanField(default=False, help_text="Show monthly energy production/consumption")
     daily_production = models.FloatField(default=0, help_text="Daily production of the device")
     daily_consumption = models.FloatField(default=0, help_text="Daily consumption of the device")
-    register_type = models.CharField(
-        max_length=10,
-        choices=[('input', 'Input Register'), ('holding', 'Holding Register')],
-        default='input',
-        help_text='Type of Modbus register to read (Input or Holding)',
-        null=True,
-        blank=True
-    )
     protocol = models.CharField(
         max_length=10,
         choices=[('modbus', 'MODBUS'), ('dlms', 'DLMS')],
         default='modbus',
         help_text='Type of protocol for the readings'
+    )
+    preset = models.CharField(
+        max_length=150,
+        blank=True,
+        default='',
+        help_text="Preset di mappatura applicato alla creazione (vuoto = mappatura manuale)"
     )
     
     class Meta:
@@ -64,6 +60,29 @@ class Device(models.Model):
         ordering = ['name']  
     def __str__(self):
         return f"{self.name}"
+
+REGISTER_TYPE_CHOICES = [('input', 'Input Register'), ('holding', 'Holding Register')]
+
+class ModbusReadBlock(models.Model):
+    """Blocco di registri consecutivi letto dal device (un device può averne più di uno)."""
+    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name="read_blocks")
+    register_type = models.CharField(
+        max_length=10,
+        choices=REGISTER_TYPE_CHOICES,
+        default='input',
+        help_text='Type of Modbus register to read (Input or Holding)'
+    )
+    start_address = models.CharField(max_length=10, default="0x0000", help_text="Starting Modbus address in hexadecimal (e.g., 0x0280)")
+    word_count = models.PositiveIntegerField(default=1, help_text="Total number of consecutive words to read")
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order']
+        verbose_name = "Modbus read block"
+        verbose_name_plural = "Modbus read blocks"
+
+    def __str__(self):
+        return f"{self.register_type} {self.start_address} x{self.word_count}"
 
 class DeviceVariable(models.Model):   
     VARIABLE_TYPE_CHOICES = [
@@ -97,8 +116,15 @@ class DeviceVariable(models.Model):
 
 class ModbusMappingVariable(DeviceVariable):
     device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name="modbus_variables", null=True, blank=True)
+    register_type = models.CharField(
+        max_length=10,
+        choices=REGISTER_TYPE_CHOICES,
+        default='input',
+        help_text='Type of Modbus register (Input or Holding)'
+    )
     address = models.CharField(default="",help_text="Address of the mapped value", null=True, blank=True)
     conversion_factor = models.CharField(default="1", help_text="Factor to convert raw data to physical value", null=True, blank=True)
+    offset = models.FloatField(default=0, help_text="Valore sottratto al dato grezzo prima del conversion factor: (raw - offset) * factor")
     bit_length = models.PositiveIntegerField(
         choices=[(16, '16 bit'), (32, '32 bit'), (64, '64 bit')],
         default=16,

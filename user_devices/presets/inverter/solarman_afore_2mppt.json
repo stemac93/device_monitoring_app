@@ -1,0 +1,273 @@
+{
+  "id": "inverter/solarman_afore_2mppt",
+  "category": "inverter",
+  "manufacturer": "Afore",
+  "model": "2mppt (afore_2mppt)",
+  "source": {
+    "project": "ha-solarman",
+    "url": "https://github.com/davidrapan/ha-solarman",
+    "license": "MIT",
+    "commit": "ac1d88b83268beeb0511b8a1b7fc8e17deddc044",
+    "file": "custom_components/solarman/inverter_definitions/afore_2mppt.yaml"
+  },
+  "power_variable": "Power",
+  "notes": [],
+  "blocks": [
+    {
+      "register_type": "input",
+      "start_address": "0x01FB",
+      "word_count": 17
+    },
+    {
+      "register_type": "input",
+      "start_address": "0x0229",
+      "word_count": 7
+    },
+    {
+      "register_type": "input",
+      "start_address": "0x03E8",
+      "word_count": 16
+    },
+    {
+      "register_type": "input",
+      "start_address": "0x09D2",
+      "word_count": 2
+    }
+  ],
+  "variables": [
+    {
+      "name": "PV Power",
+      "register_type": "input",
+      "address": "0x0229",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 Power",
+      "register_type": "input",
+      "address": "0x022D",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 Voltage",
+      "register_type": "input",
+      "address": "0x022B",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 Current",
+      "register_type": "input",
+      "address": "0x022C",
+      "unit": "A",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Power",
+      "register_type": "input",
+      "address": "0x022C",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Voltage",
+      "register_type": "input",
+      "address": "0x022E",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Current",
+      "register_type": "input",
+      "address": "0x022F",
+      "unit": "A",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Today Production",
+      "register_type": "input",
+      "address": "0x03E8",
+      "unit": "Wh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total Production",
+      "register_type": "input",
+      "address": "0x03F6",
+      "unit": "Wh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "L1 Voltage",
+      "register_type": "input",
+      "address": "0x01FB",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "L2 Voltage",
+      "register_type": "input",
+      "address": "0x01FC",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "L3 Voltage",
+      "register_type": "input",
+      "address": "0x01FD",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "L1 Current",
+      "register_type": "input",
+      "address": "0x01FE",
+      "unit": "A",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "L2 Current",
+      "register_type": "input",
+      "address": "0x01FF",
+      "unit": "A",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "L3 Current",
+      "register_type": "input",
+      "address": "0x0200",
+      "unit": "A",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "L1 Frequency",
+      "register_type": "input",
+      "address": "0x0201",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "L2 Frequency",
+      "register_type": "input",
+      "address": "0x0202",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "L3 Frequency",
+      "register_type": "input",
+      "address": "0x0203",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Temperature",
+      "register_type": "input",
+      "address": "0x09D2",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "DC Temperature",
+      "register_type": "input",
+      "address": "0x09D3",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Power",
+      "register_type": "input",
+      "address": "0x020A",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    }
+  ],
+  "computed": []
+}

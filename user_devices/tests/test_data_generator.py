@@ -34,8 +34,6 @@ def generate_test_data():
         Gateway=gateway,
         defaults={
             'slave_id': 1,
-            'start_address': '0x0000',
-            'bytes_count': 10,
             'port': 502
         }
     )

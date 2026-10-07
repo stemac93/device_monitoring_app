@@ -1,0 +1,222 @@
+{
+  "id": "inverter/alphaess_gen_1",
+  "category": "inverter",
+  "manufacturer": "AlphaESS",
+  "model": "GEN [alphaess]",
+  "source": {
+    "project": "homeassistant-solax-modbus",
+    "url": "https://github.com/wills106/homeassistant-solax-modbus",
+    "license": "Apache-2.0",
+    "commit": "ab73b9e1d154b1db9b98a29f33b49af87af4d191",
+    "file": "custom_components/solax_modbus/plugin_alphaess.py"
+  },
+  "power_variable": "Inverter Power",
+  "notes": [
+    "Prefissi numero di serie: XYZ",
+    "Tipo plugin: 0x1 (GEN)"
+  ],
+  "blocks": [
+    {
+      "register_type": "holding",
+      "start_address": "0x001A",
+      "word_count": 9
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x0100",
+      "word_count": 36
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x040C",
+      "word_count": 42
+    }
+  ],
+  "variables": [
+    {
+      "name": "Grid Frequency",
+      "register_type": "holding",
+      "address": "0x001A",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Active Power Energy",
+      "register_type": "holding",
+      "address": "0x0021",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Voltage",
+      "register_type": "holding",
+      "address": "0x0100",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery SOC",
+      "register_type": "holding",
+      "address": "0x0102",
+      "unit": "%",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Capacity",
+      "register_type": "holding",
+      "address": "0x0119",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Input Energy",
+      "register_type": "holding",
+      "address": "0x0120",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Output Energy",
+      "register_type": "holding",
+      "address": "0x0122",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Power",
+      "register_type": "holding",
+      "address": "0x040C",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Frequency",
+      "register_type": "holding",
+      "address": "0x041C",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 1",
+      "register_type": "holding",
+      "address": "0x041D",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 1",
+      "register_type": "holding",
+      "address": "0x041E",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power 1",
+      "register_type": "holding",
+      "address": "0x041F",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 2",
+      "register_type": "holding",
+      "address": "0x0421",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 2",
+      "register_type": "holding",
+      "address": "0x0422",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power 2",
+      "register_type": "holding",
+      "address": "0x0423",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Temperature",
+      "register_type": "holding",
+      "address": "0x0435",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    }
+  ],
+  "computed": [
+    {
+      "name": "Power",
+      "unit": "W",
+      "formula": "Inverter_Power",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    }
+  ]
+}

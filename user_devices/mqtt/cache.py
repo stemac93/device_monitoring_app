@@ -14,7 +14,12 @@ la cache, oppure il ciclo successivo Telegraf ripubblica).
 
 Formato cache:
     key: "mqtt:rawdata:{device_pk}"
-    value: JSON con { "ts": epoch_s, "base_values": {int_addr: int_value, ...} }
+    value: JSON con { "ts": epoch_s, "values": {"input:640": [int_value, epoch_s], ...} }
+
+Un device può avere più blocchi di lettura (input e holding): Telegraf può
+pubblicarli in messaggi separati sullo stesso topic. Per questo put_raw fa il
+merge con lo snapshot esistente e ogni registro ha il proprio timestamp, così
+get_raw scarta solo i registri non più aggiornati.
 """
 
 import json
@@ -43,24 +48,41 @@ def _key(device_pk: int) -> str:
     return f"{_KEY_PREFIX}{device_pk}"
 
 
-def put_raw(device_pk: int, base_values: dict, ts: Optional[float] = None) -> None:
-    """Memorizza l'ultimo snapshot di registri grezzi per un device.
+def _encode(key) -> str:
+    register_type, addr = key
+    return f"{register_type}:{addr}"
 
-    base_values: dict {int_address: int_raw_register_value}
+
+def _decode(key: str):
+    register_type, addr = key.split(":", 1)
+    return register_type, int(addr)
+
+
+def put_raw(device_pk: int, base_values: dict, ts: Optional[float] = None) -> None:
+    """Aggiunge/aggiorna i registri grezzi di un device nello snapshot in cache.
+
+    base_values: dict {(register_type, int_address): int_raw_register_value}
     """
-    payload = {
-        "ts": ts if ts is not None else time.time(),
-        # Redis serializza JSON, le chiavi dict vanno a stringa: teniamolo esplicito
-        "base_values": {str(addr): val for addr, val in base_values.items()},
-    }
+    ts = ts if ts is not None else time.time()
+    values = {}
+    raw = _redis.get(_key(device_pk))
+    if raw:
+        try:
+            values = json.loads(raw).get("values", {})
+        except json.JSONDecodeError:
+            values = {}
+    for key, val in base_values.items():
+        values[_encode(key)] = [val, ts]
+    payload = {"ts": max([ts] + [v[1] for v in values.values()]), "values": values}
     _redis.set(_key(device_pk), json.dumps(payload), ex=RAW_TTL_SECONDS)
 
 
 def get_raw(device_pk: int, max_age_seconds: Optional[int] = None) -> Optional[dict]:
     """Recupera l'ultimo snapshot grezzo per un device.
 
-    Ritorna None se assente o troppo vecchio.
-    Ritorna dict {int_address: int_value} altrimenti.
+    Ritorna None se assente o se nessun registro è abbastanza recente.
+    Ritorna dict {(register_type, int_address): int_value} altrimenti,
+    con i soli registri più recenti della soglia di freschezza.
     """
     raw = _redis.get(_key(device_pk))
     if not raw:
@@ -71,11 +93,13 @@ def get_raw(device_pk: int, max_age_seconds: Optional[int] = None) -> Optional[d
         return None
 
     age_limit = max_age_seconds if max_age_seconds is not None else RAW_FRESHNESS_SECONDS
-    if time.time() - float(payload.get("ts", 0)) > age_limit:
-        return None
-
-    # Ricostruisci int: addr, Telegraf ha pubblicato in int, li abbiamo stringified in put_raw
-    return {int(k): int(v) for k, v in payload.get("base_values", {}).items()}
+    now = time.time()
+    fresh = {
+        _decode(k): int(v[0])
+        for k, v in payload.get("values", {}).items()
+        if now - float(v[1]) <= age_limit
+    }
+    return fresh or None
 
 
 def get_raw_age(device_pk: int) -> Optional[float]:

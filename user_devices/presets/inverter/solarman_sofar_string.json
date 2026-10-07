@@ -1,0 +1,368 @@
+{
+  "id": "inverter/solarman_sofar_string",
+  "category": "inverter",
+  "manufacturer": "Sofar",
+  "model": "string (sofar_string)",
+  "source": {
+    "project": "ha-solarman",
+    "url": "https://github.com/davidrapan/ha-solarman",
+    "license": "MIT",
+    "commit": "ac1d88b83268beeb0511b8a1b7fc8e17deddc044",
+    "file": "custom_components/solarman/inverter_definitions/sofar_string.yaml"
+  },
+  "power_variable": "Power",
+  "notes": [],
+  "blocks": [
+    {
+      "register_type": "holding",
+      "start_address": "0x0006",
+      "word_count": 33
+    }
+  ],
+  "variables": [
+    {
+      "name": "PV1 Power",
+      "register_type": "holding",
+      "address": "0x000A",
+      "unit": "W",
+      "conversion_factor": "10",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Power",
+      "register_type": "holding",
+      "address": "0x000B",
+      "unit": "W",
+      "conversion_factor": "10",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 Voltage",
+      "register_type": "holding",
+      "address": "0x0006",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Voltage",
+      "register_type": "holding",
+      "address": "0x0008",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 Current",
+      "register_type": "holding",
+      "address": "0x0007",
+      "unit": "A",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Current",
+      "register_type": "holding",
+      "address": "0x0009",
+      "unit": "A",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total Production",
+      "register_type": "holding",
+      "address": "0x0015",
+      "unit": "kWh",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total Production time",
+      "register_type": "holding",
+      "address": "0x0017",
+      "unit": "h",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Today Production",
+      "register_type": "holding",
+      "address": "0x0019",
+      "unit": "kWh",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Today Production time",
+      "register_type": "holding",
+      "address": "0x001A",
+      "unit": "min",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Power",
+      "register_type": "holding",
+      "address": "0x000C",
+      "unit": "W",
+      "conversion_factor": "10",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    },
+    {
+      "name": "Output reactive power",
+      "register_type": "holding",
+      "address": "0x000D",
+      "unit": "kvar",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid frequency",
+      "register_type": "holding",
+      "address": "0x000E",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "L1 Voltage",
+      "register_type": "holding",
+      "address": "0x000F",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "L1 Current",
+      "register_type": "holding",
+      "address": "0x0010",
+      "unit": "A",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "L2 Voltage",
+      "register_type": "holding",
+      "address": "0x0011",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "L2 Current",
+      "register_type": "holding",
+      "address": "0x0012",
+      "unit": "A",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "L3 Voltage",
+      "register_type": "holding",
+      "address": "0x0013",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "L3 Current",
+      "register_type": "holding",
+      "address": "0x0014",
+      "unit": "A",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter module temperature",
+      "register_type": "holding",
+      "address": "0x001B",
+      "unit": "°C",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter inner temperature",
+      "register_type": "holding",
+      "address": "0x001C",
+      "unit": "°C",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter bus voltage",
+      "register_type": "holding",
+      "address": "0x001D",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 voltage sample by slave CPU",
+      "register_type": "holding",
+      "address": "0x001E",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 current sample by slave CPU",
+      "register_type": "holding",
+      "address": "0x001F",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Countdown time",
+      "register_type": "holding",
+      "address": "0x0020",
+      "unit": "s",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter alert message",
+      "register_type": "holding",
+      "address": "0x0021",
+      "unit": "",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Input mode",
+      "register_type": "holding",
+      "address": "0x0022",
+      "unit": "",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Communication Board inner message",
+      "register_type": "holding",
+      "address": "0x0023",
+      "unit": "",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Insulation of PV1 to ground",
+      "register_type": "holding",
+      "address": "0x0024",
+      "unit": "",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Insulation of PV2 to ground",
+      "register_type": "holding",
+      "address": "0x0025",
+      "unit": "",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Insulation of PV- to ground",
+      "register_type": "holding",
+      "address": "0x0026",
+      "unit": "",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    }
+  ],
+  "computed": []
+}

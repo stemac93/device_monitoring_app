@@ -1,0 +1,187 @@
+{
+  "id": "inverter/solarman_solis_1p8k_5g",
+  "category": "inverter",
+  "manufacturer": "Solis",
+  "model": "1p8k-5g (solis_1p8k-5g)",
+  "source": {
+    "project": "home_assistant_solarman",
+    "url": "https://github.com/StephanJoubert/home_assistant_solarman",
+    "license": "Apache-2.0",
+    "commit": "d4296b16415dc9187a74fbaf249bfd71417c38aa",
+    "file": "custom_components/solarman/inverter_definitions/solis_1p8k-5g.yaml"
+  },
+  "power_variable": "Inverter AC Power",
+  "notes": [],
+  "blocks": [
+    {
+      "register_type": "input",
+      "start_address": "0x0BBC",
+      "word_count": 39
+    }
+  ],
+  "variables": [
+    {
+      "name": "Inverter Temperature",
+      "register_type": "input",
+      "address": "0x0BE1",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 Voltage",
+      "register_type": "input",
+      "address": "0x0BCD",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Voltage",
+      "register_type": "input",
+      "address": "0x0BCF",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 Current",
+      "register_type": "input",
+      "address": "0x0BCE",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Current",
+      "register_type": "input",
+      "address": "0x0BD0",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total DC Power",
+      "register_type": "input",
+      "address": "0x0BBE",
+      "unit": "kW",
+      "conversion_factor": "0.001",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter AC Power",
+      "register_type": "input",
+      "address": "0x0BBC",
+      "unit": "kW",
+      "conversion_factor": "0.001",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Voltage",
+      "register_type": "input",
+      "address": "0x0BDB",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Current",
+      "register_type": "input",
+      "address": "0x0BDE",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Frequency",
+      "register_type": "input",
+      "address": "0x0BE2",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Daily Generation",
+      "register_type": "input",
+      "address": "0x0BC6",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Monthly Generation",
+      "register_type": "input",
+      "address": "0x0BC2",
+      "unit": "kWh",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Yearly Generation",
+      "register_type": "input",
+      "address": "0x0BC8",
+      "unit": "kWh",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total Generation",
+      "register_type": "input",
+      "address": "0x0BC0",
+      "unit": "kWh",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    }
+  ],
+  "computed": [
+    {
+      "name": "Power",
+      "unit": "W",
+      "formula": "Inverter_AC_Power*1000",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    }
+  ]
+}

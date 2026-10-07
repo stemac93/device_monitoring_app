@@ -1,0 +1,623 @@
+{
+  "id": "inverter/solax_x3_retrofit_ac_gen3_x3_a04",
+  "category": "inverter",
+  "manufacturer": "SolaX",
+  "model": "X3-RetroFit (AC GEN3 X3) [solax]",
+  "source": {
+    "project": "homeassistant-solax-modbus",
+    "url": "https://github.com/wills106/homeassistant-solax-modbus",
+    "license": "Apache-2.0",
+    "commit": "ab73b9e1d154b1db9b98a29f33b49af87af4d191",
+    "file": "custom_components/solax_modbus/plugin_solax.py"
+  },
+  "power_variable": "Inverter Power",
+  "notes": [
+    "Prefissi numero di serie: F3D, F3E",
+    "Tipo plugin: 0xA04 (AC GEN3 X3)"
+  ],
+  "blocks": [
+    {
+      "register_type": "input",
+      "start_address": "0x0000",
+      "word_count": 76
+    },
+    {
+      "register_type": "input",
+      "start_address": "0x0066",
+      "word_count": 82
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x008E",
+      "word_count": 91
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x0109",
+      "word_count": 11
+    }
+  ],
+  "variables": [
+    {
+      "name": "Battery Charge Float Voltage",
+      "register_type": "holding",
+      "address": "0x008E",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Discharge Cut Off Voltage",
+      "register_type": "holding",
+      "address": "0x008F",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Export Control Factory Limit",
+      "register_type": "holding",
+      "address": "0x00B5",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Install Capacity",
+      "register_type": "holding",
+      "address": "0x00E8",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Meter 1 ID",
+      "register_type": "holding",
+      "address": "0x0109",
+      "unit": "",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Meter 2 ID",
+      "register_type": "holding",
+      "address": "0x010A",
+      "unit": "",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Discharge Cut Off Voltage Grid Mode",
+      "register_type": "holding",
+      "address": "0x0113",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Voltage",
+      "register_type": "input",
+      "address": "0x0000",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Current",
+      "register_type": "input",
+      "address": "0x0001",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Power",
+      "register_type": "input",
+      "address": "0x0002",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Frequency",
+      "register_type": "input",
+      "address": "0x0007",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Temperature",
+      "register_type": "input",
+      "address": "0x0008",
+      "unit": "°C",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Time Count Down",
+      "register_type": "input",
+      "address": "0x0013",
+      "unit": "",
+      "conversion_factor": "0.001",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Voltage Charge",
+      "register_type": "input",
+      "address": "0x0014",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Current Charge",
+      "register_type": "input",
+      "address": "0x0015",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Power Charge",
+      "register_type": "input",
+      "address": "0x0016",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Temperature",
+      "register_type": "input",
+      "address": "0x0018",
+      "unit": "°C",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Capacity",
+      "register_type": "input",
+      "address": "0x001C",
+      "unit": "%",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Output Energy Total",
+      "register_type": "input",
+      "address": "0x001D",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Battery Output Energy Today",
+      "register_type": "input",
+      "address": "0x0020",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Input Energy Total",
+      "register_type": "input",
+      "address": "0x0021",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Battery Input Energy Today",
+      "register_type": "input",
+      "address": "0x0023",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Charge Max Current",
+      "register_type": "input",
+      "address": "0x0024",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Discharge Max Current",
+      "register_type": "input",
+      "address": "0x0025",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Export Total",
+      "register_type": "input",
+      "address": "0x0048",
+      "unit": "kWh",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Grid Import Total",
+      "register_type": "input",
+      "address": "0x004A",
+      "unit": "kWh",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Bus Volt",
+      "register_type": "input",
+      "address": "0x0066",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "DC Fault Val",
+      "register_type": "input",
+      "address": "0x0067",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Overload Fault Val",
+      "register_type": "input",
+      "address": "0x0068",
+      "unit": "",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Volt Fault Val",
+      "register_type": "input",
+      "address": "0x0069",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Power L1",
+      "register_type": "input",
+      "address": "0x006C",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Frequency L1",
+      "register_type": "input",
+      "address": "0x006D",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Power L2",
+      "register_type": "input",
+      "address": "0x0070",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Frequency L2",
+      "register_type": "input",
+      "address": "0x0071",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Power L3",
+      "register_type": "input",
+      "address": "0x0074",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Frequency L3",
+      "register_type": "input",
+      "address": "0x0075",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Mode Runtime",
+      "register_type": "input",
+      "address": "0x0088",
+      "unit": "h",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "little"
+    },
+    {
+      "name": "Normal Runtime",
+      "register_type": "input",
+      "address": "0x008C",
+      "unit": "h",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "little"
+    },
+    {
+      "name": "E Charge Today",
+      "register_type": "input",
+      "address": "0x0091",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "E Charge Total",
+      "register_type": "input",
+      "address": "0x0092",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Total Solar Energy",
+      "register_type": "input",
+      "address": "0x0094",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Today s Solar Energy",
+      "register_type": "input",
+      "address": "0x0096",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Today s Export Energy",
+      "register_type": "input",
+      "address": "0x0098",
+      "unit": "kWh",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Today s Import Energy",
+      "register_type": "input",
+      "address": "0x009A",
+      "unit": "kWh",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Meter 2 Measured Power",
+      "register_type": "input",
+      "address": "0x00A8",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "little"
+    },
+    {
+      "name": "Meter 2 Export Total",
+      "register_type": "input",
+      "address": "0x00AA",
+      "unit": "kWh",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Meter 2 Import Total",
+      "register_type": "input",
+      "address": "0x00AC",
+      "unit": "kWh",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Meter 2 Export Today",
+      "register_type": "input",
+      "address": "0x00AE",
+      "unit": "kWh",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Meter 2 Import Today",
+      "register_type": "input",
+      "address": "0x00B0",
+      "unit": "kWh",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "little"
+    },
+    {
+      "name": "Meter 2 Measured Power L1",
+      "register_type": "input",
+      "address": "0x00B2",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "little"
+    },
+    {
+      "name": "Meter 2 Measured Power L2",
+      "register_type": "input",
+      "address": "0x00B4",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "little"
+    },
+    {
+      "name": "Meter 2 Measured Power L3",
+      "register_type": "input",
+      "address": "0x00B6",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "little"
+    }
+  ],
+  "computed": [
+    {
+      "name": "Power",
+      "unit": "W",
+      "formula": "Inverter_Power",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    }
+  ]
+}

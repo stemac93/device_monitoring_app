@@ -1,0 +1,267 @@
+{
+  "id": "inverter/solis_old_hybrid_x1_1100",
+  "category": "inverter",
+  "manufacturer": "Solis",
+  "model": "HYBRID X1 [solis_old]",
+  "source": {
+    "project": "homeassistant-solax-modbus",
+    "url": "https://github.com/wills106/homeassistant-solax-modbus",
+    "license": "Apache-2.0",
+    "commit": "ab73b9e1d154b1db9b98a29f33b49af87af4d191",
+    "file": "custom_components/solax_modbus/plugin_solis_old.py"
+  },
+  "power_variable": "ActivePower",
+  "notes": [
+    "Prefissi numero di serie: 303105, 363105, 463105, 503105, 603105, 603122",
+    "Tipo plugin: 0x1100 (HYBRID X1)"
+  ],
+  "blocks": [
+    {
+      "register_type": "input",
+      "start_address": "0x0BBD",
+      "word_count": 39
+    }
+  ],
+  "variables": [
+    {
+      "name": "ActivePower",
+      "register_type": "input",
+      "address": "0x0BBD",
+      "unit": "kW",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Total Power",
+      "register_type": "input",
+      "address": "0x0BBF",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Power Generation Total",
+      "register_type": "input",
+      "address": "0x0BC1",
+      "unit": "kWh",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Power Generation This Month",
+      "register_type": "input",
+      "address": "0x0BC3",
+      "unit": "kWh",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Power Generation Last Month",
+      "register_type": "input",
+      "address": "0x0BC5",
+      "unit": "kWh",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Power Generation Today",
+      "register_type": "input",
+      "address": "0x0BC7",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Power Generation Yesterday",
+      "register_type": "input",
+      "address": "0x0BC8",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Power Generation This Year",
+      "register_type": "input",
+      "address": "0x0BC9",
+      "unit": "kWh",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Power Generation Last Year",
+      "register_type": "input",
+      "address": "0x0BCB",
+      "unit": "kWh",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 1",
+      "register_type": "input",
+      "address": "0x0BCE",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 1",
+      "register_type": "input",
+      "address": "0x0BCF",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 2",
+      "register_type": "input",
+      "address": "0x0BD0",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 2",
+      "register_type": "input",
+      "address": "0x0BD1",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 3",
+      "register_type": "input",
+      "address": "0x0BD2",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 3",
+      "register_type": "input",
+      "address": "0x0BD3",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 4",
+      "register_type": "input",
+      "address": "0x0BD4",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 4",
+      "register_type": "input",
+      "address": "0x0BD5",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Voltage",
+      "register_type": "input",
+      "address": "0x0BDA",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Current",
+      "register_type": "input",
+      "address": "0x0BDD",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Temperature",
+      "register_type": "input",
+      "address": "0x0BE2",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Frequency",
+      "register_type": "input",
+      "address": "0x0BE3",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    }
+  ],
+  "computed": [
+    {
+      "name": "Power",
+      "unit": "W",
+      "formula": "ActivePower*1000",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    }
+  ]
+}

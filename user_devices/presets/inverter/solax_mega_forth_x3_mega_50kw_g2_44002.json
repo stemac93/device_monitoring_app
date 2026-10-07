@@ -1,0 +1,458 @@
+{
+  "id": "inverter/solax_mega_forth_x3_mega_50kw_g2_44002",
+  "category": "inverter",
+  "manufacturer": "SolaX",
+  "model": "X3- MEGA 50kW - G2 [solax_mega_forth]",
+  "source": {
+    "project": "homeassistant-solax-modbus",
+    "url": "https://github.com/wills106/homeassistant-solax-modbus",
+    "license": "Apache-2.0",
+    "commit": "ab73b9e1d154b1db9b98a29f33b49af87af4d191",
+    "file": "custom_components/solax_modbus/plugin_solax_mega_forth.py"
+  },
+  "power_variable": "PV Power 1..5",
+  "notes": [
+    "Prefissi numero di serie: X3G05",
+    "Tipo plugin: 0x44002 (GEN2 MAX MPPT5)"
+  ],
+  "blocks": [
+    {
+      "register_type": "input",
+      "start_address": "0x0100",
+      "word_count": 7
+    },
+    {
+      "register_type": "input",
+      "start_address": "0x0180",
+      "word_count": 16
+    },
+    {
+      "register_type": "input",
+      "start_address": "0x0202",
+      "word_count": 1
+    },
+    {
+      "register_type": "input",
+      "start_address": "0x028B",
+      "word_count": 33
+    }
+  ],
+  "variables": [
+    {
+      "name": "Grid Voltage L1",
+      "register_type": "input",
+      "address": "0x0100",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Voltage L2",
+      "register_type": "input",
+      "address": "0x0101",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Voltage L3",
+      "register_type": "input",
+      "address": "0x0102",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Voltage L1",
+      "register_type": "input",
+      "address": "0x0103",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Voltage L2",
+      "register_type": "input",
+      "address": "0x0104",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Voltage L3",
+      "register_type": "input",
+      "address": "0x0105",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Frequency",
+      "register_type": "input",
+      "address": "0x0106",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Current L1",
+      "register_type": "input",
+      "address": "0x0180",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Current L2",
+      "register_type": "input",
+      "address": "0x0181",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Current L3",
+      "register_type": "input",
+      "address": "0x0182",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Active Power Energy",
+      "register_type": "input",
+      "address": "0x0183",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Reactive Power",
+      "register_type": "input",
+      "address": "0x0185",
+      "unit": "var",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Apparent Power",
+      "register_type": "input",
+      "address": "0x0187",
+      "unit": "VA",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Today s Energy",
+      "register_type": "input",
+      "address": "0x0189",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Total Energy",
+      "register_type": "input",
+      "address": "0x018A",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Power Factor",
+      "register_type": "input",
+      "address": "0x018F",
+      "unit": "",
+      "conversion_factor": "0.001",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Temperature",
+      "register_type": "input",
+      "address": "0x0202",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 1",
+      "register_type": "input",
+      "address": "0x028B",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 1",
+      "register_type": "input",
+      "address": "0x028C",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power 1",
+      "register_type": "input",
+      "address": "0x028D",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "MPPT 1 Temperature",
+      "register_type": "input",
+      "address": "0x028F",
+      "unit": "°C",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 2",
+      "register_type": "input",
+      "address": "0x0292",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 2",
+      "register_type": "input",
+      "address": "0x0293",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power 2",
+      "register_type": "input",
+      "address": "0x0294",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "MPPT 2 Temperature",
+      "register_type": "input",
+      "address": "0x0296",
+      "unit": "°C",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 3",
+      "register_type": "input",
+      "address": "0x0299",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 3",
+      "register_type": "input",
+      "address": "0x029A",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power 3",
+      "register_type": "input",
+      "address": "0x029B",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "MPPT 3 Temperature",
+      "register_type": "input",
+      "address": "0x029D",
+      "unit": "°C",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 4",
+      "register_type": "input",
+      "address": "0x02A0",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 4",
+      "register_type": "input",
+      "address": "0x02A1",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power 4",
+      "register_type": "input",
+      "address": "0x02A2",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "MPPT 4 Temperature",
+      "register_type": "input",
+      "address": "0x02A4",
+      "unit": "°C",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Voltage 5",
+      "register_type": "input",
+      "address": "0x02A7",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Current 5",
+      "register_type": "input",
+      "address": "0x02A8",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Power 5",
+      "register_type": "input",
+      "address": "0x02A9",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "MPPT 5 Temperature",
+      "register_type": "input",
+      "address": "0x02AB",
+      "unit": "°C",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    }
+  ],
+  "computed": [
+    {
+      "name": "Power",
+      "unit": "W",
+      "formula": "PV_Power_1+PV_Power_2+PV_Power_3+PV_Power_4+PV_Power_5",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    }
+  ]
+}

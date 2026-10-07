@@ -1,0 +1,622 @@
+{
+  "id": "inverter/viessmann_viessmann_1",
+  "category": "inverter",
+  "manufacturer": "Viessmann / GoodWe",
+  "model": "Viessmann [viessmann]",
+  "source": {
+    "project": "homeassistant-solax-modbus",
+    "url": "https://github.com/wills106/homeassistant-solax-modbus",
+    "license": "Apache-2.0",
+    "commit": "ab73b9e1d154b1db9b98a29f33b49af87af4d191",
+    "file": "custom_components/solax_modbus/plugin_viessmann.py"
+  },
+  "power_variable": "Inverter Power",
+  "notes": [
+    "Tipo plugin: 0x1 ()"
+  ],
+  "blocks": [
+    {
+      "register_type": "holding",
+      "start_address": "0x88B9",
+      "word_count": 1
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x891F",
+      "word_count": 8
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x8931",
+      "word_count": 5
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x8941",
+      "word_count": 4
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x8961",
+      "word_count": 8
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x896C",
+      "word_count": 4
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x8977",
+      "word_count": 4
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x897D",
+      "word_count": 8
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x8985",
+      "word_count": 7
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x8CB9",
+      "word_count": 2
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x908F",
+      "word_count": 2
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0x909C",
+      "word_count": 4
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0xB047",
+      "word_count": 1
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0xBB1E",
+      "word_count": 8
+    },
+    {
+      "register_type": "holding",
+      "start_address": "0xBB26",
+      "word_count": 1
+    }
+  ],
+  "variables": [
+    {
+      "name": "Rated Power",
+      "register_type": "holding",
+      "address": "0x88B9",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 Voltage",
+      "register_type": "holding",
+      "address": "0x891F",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 Current",
+      "register_type": "holding",
+      "address": "0x8920",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV1 Power",
+      "register_type": "holding",
+      "address": "0x8921",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Voltage",
+      "register_type": "holding",
+      "address": "0x8923",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Current",
+      "register_type": "holding",
+      "address": "0x8924",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV2 Power",
+      "register_type": "holding",
+      "address": "0x8925",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Voltage",
+      "register_type": "holding",
+      "address": "0x8931",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Current",
+      "register_type": "holding",
+      "address": "0x8932",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Frequency",
+      "register_type": "holding",
+      "address": "0x8933",
+      "unit": "Hz",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Grid Power",
+      "register_type": "holding",
+      "address": "0x8934",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Inverter Power",
+      "register_type": "holding",
+      "address": "0x8941",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "AC Active Power",
+      "register_type": "holding",
+      "address": "0x8943",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Backup Load Power",
+      "register_type": "holding",
+      "address": "0x8961",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Load Power",
+      "register_type": "holding",
+      "address": "0x8963",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Backup Load Percent",
+      "register_type": "holding",
+      "address": "0x8965",
+      "unit": "%",
+      "conversion_factor": "0.01",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Air Temperature",
+      "register_type": "holding",
+      "address": "0x8966",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Heatsink Temperature",
+      "register_type": "holding",
+      "address": "0x8968",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Voltage",
+      "register_type": "holding",
+      "address": "0x896C",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Current",
+      "register_type": "holding",
+      "address": "0x896D",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Power",
+      "register_type": "holding",
+      "address": "0x896E",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Energy Total",
+      "register_type": "holding",
+      "address": "0x8977",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "PV Energy Today",
+      "register_type": "holding",
+      "address": "0x8979",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Runtime Total",
+      "register_type": "holding",
+      "address": "0x897D",
+      "unit": "h",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Load Energy Total",
+      "register_type": "holding",
+      "address": "0x8983",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Load Energy Today",
+      "register_type": "holding",
+      "address": "0x8985",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Charge Energy Total",
+      "register_type": "holding",
+      "address": "0x8986",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Charge Energy Today",
+      "register_type": "holding",
+      "address": "0x8988",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Discharge Energy Total",
+      "register_type": "holding",
+      "address": "0x8989",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Discharge Energy Today",
+      "register_type": "holding",
+      "address": "0x898B",
+      "unit": "kWh",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Meter Active Power",
+      "register_type": "holding",
+      "address": "0x8CB9",
+      "unit": "W",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 32,
+      "is_signed": true,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery SOC",
+      "register_type": "holding",
+      "address": "0x908F",
+      "unit": "%",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery SOH",
+      "register_type": "holding",
+      "address": "0x9090",
+      "unit": "%",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Max Cell Temperature",
+      "register_type": "holding",
+      "address": "0x909C",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Min Cell Temperature",
+      "register_type": "holding",
+      "address": "0x909D",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Max Cell Voltage",
+      "register_type": "holding",
+      "address": "0x909E",
+      "unit": "mV",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Battery Min Cell Voltage",
+      "register_type": "holding",
+      "address": "0x909F",
+      "unit": "mV",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Configured Modbus Address",
+      "register_type": "holding",
+      "address": "0xB047",
+      "unit": "",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Real-time BMS Charge Voltage Limit",
+      "register_type": "holding",
+      "address": "0xBB1E",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Real-time BMS Charge Current Limit",
+      "register_type": "holding",
+      "address": "0xBB1F",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Real-time BMS Discharge Voltage Limit",
+      "register_type": "holding",
+      "address": "0xBB20",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Real-time BMS Discharge Current Limit",
+      "register_type": "holding",
+      "address": "0xBB21",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Real-time BMS Battery Voltage",
+      "register_type": "holding",
+      "address": "0xBB22",
+      "unit": "V",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Real-time BMS Battery Current",
+      "register_type": "holding",
+      "address": "0xBB23",
+      "unit": "A",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Real-time BMS SOC",
+      "register_type": "holding",
+      "address": "0xBB24",
+      "unit": "%",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Real-time BMS SOH",
+      "register_type": "holding",
+      "address": "0xBB25",
+      "unit": "%",
+      "conversion_factor": "1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    },
+    {
+      "name": "Real-time BMS Temperature",
+      "register_type": "holding",
+      "address": "0xBB26",
+      "unit": "°C",
+      "conversion_factor": "0.1",
+      "offset": 0,
+      "bit_length": 16,
+      "is_signed": false,
+      "endianness": "big"
+    }
+  ],
+  "computed": [
+    {
+      "name": "Power",
+      "unit": "W",
+      "formula": "Inverter_Power",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    }
+  ]
+}

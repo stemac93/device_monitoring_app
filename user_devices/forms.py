@@ -1,16 +1,28 @@
 from django import forms
 from .models import Device, DlmsMappingVariable
+from .presets import preset_choices
 
 class DeviceForm(forms.ModelForm):
+    apply_preset = forms.ChoiceField(
+        label="Preset",
+        required=False,
+        help_text="Crea automaticamente blocchi di lettura e variabili per il modello scelto. "
+                  "Lascia vuoto per mappare a mano.",
+    )
+
     class Meta:
         model = Device
         fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['apply_preset'].choices = preset_choices()
 
     def clean(self):
         cleaned_data = super().clean()
         protocol = cleaned_data.get('protocol')
         
-        modbus_fields = ['slave_id', 'register_type', 'start_address', 'word_count']
+        modbus_fields = ['slave_id']
 
         if protocol == 'dlms':
             # Optional: remove validation errors for modbus fields
@@ -33,9 +45,6 @@ class DeviceForm(forms.ModelForm):
         # Reset dei campi modbus se protocollo DLMS (già implementato da te)
         if protocol == 'dlms':
             obj.slave_id = None
-            obj.register_type = None
-            obj.start_address = None
-            obj.word_count = None
 
         super().save_model(request, obj, form, change)
 

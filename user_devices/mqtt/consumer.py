@@ -20,8 +20,8 @@ Payload atteso su .../raw (Telegraf `output.mqtt_v2` con `data_format = "json"`)
         "slave_id": "1"
       },
       "fields": {
-        "reg_0x0280": 2301,
-        "reg_0x0281": 15
+        "ir_0x0280": 2301,
+        "hr_0x0010": 15
       }
     }
 
@@ -66,12 +66,17 @@ TOPIC_GW_STATUS = "plants/+/status"
 TOPIC_DEV_STATUS = "plants/+/devices/+/status"
 
 
+_FIELD_PREFIXES = {"ir_": "input", "hr_": "holding"}
+
+
 def _parse_register_field(field_name: str):
-    """Da 'reg_0x0280' restituisce 0x280 (int). Ritorna None se il formato non combacia."""
-    if not field_name.startswith("reg_"):
+    """Da 'ir_0x0280' restituisce ('input', 0x280), da 'hr_0x0010' ('holding', 0x10).
+    Ritorna None se il formato non combacia."""
+    register_type = _FIELD_PREFIXES.get(field_name[:3])
+    if register_type is None:
         return None
     try:
-        return int(field_name[4:], 16)
+        return register_type, int(field_name[3:], 16)
     except ValueError:
         return None
 
@@ -135,11 +140,11 @@ def _handle_raw(gateway_topic_id: str, device_topic_id: str, payload: bytes) -> 
 
     base_values = {}
     for fname, fvalue in fields.items():
-        addr = _parse_register_field(fname)
-        if addr is None:
+        key = _parse_register_field(fname)
+        if key is None:
             continue
         try:
-            base_values[addr] = int(fvalue)
+            base_values[key] = int(fvalue)
         except (TypeError, ValueError):
             continue
 
@@ -155,11 +160,11 @@ def _handle_raw(gateway_topic_id: str, device_topic_id: str, payload: bytes) -> 
 
     put_raw(device_pk, base_values, ts=ts)
     logger.debug(
-        "Cached %d registers for device_pk=%s (ts=%s, first=0x%04x)",
+        "Cached %d registers for device_pk=%s (ts=%s, first=%s:0x%04x)",
         len(base_values),
         device_pk,
         ts,
-        min(base_values),
+        *min(base_values),
     )
 
 

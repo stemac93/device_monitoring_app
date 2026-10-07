@@ -104,7 +104,8 @@ per gli utenti e in un'interfaccia admin.
    Modbus di ogni dispositivo tramite `mbusd` su `tcp://127.0.0.1:<port>`.
 2. Per ogni dispositivo pubblica un messaggio JSON sul topic
    `plants/{gateway_pk}/devices/{device_pk}/raw`, con un campo per registro
-   chiamato `reg_0xNNNN`, QoS 1 e flag retained.
+   chiamato `ir_0xNNNN` (input register) o `hr_0xNNNN` (holding register),
+   QoS 1 e flag retained. Un dispositivo può avere più blocchi di lettura.
 3. **Mosquitto** autentica il gateway (utente `gw-{pk}`) e, tramite l'ACL,
    gli permette di pubblicare solo sotto `plants/{pk}/#`.
 4. **mqtt_consumer** (processo paho sempre attivo) è iscritto a `plants/#` e
@@ -308,8 +309,12 @@ Admin: `http://<ip-server>:8000/admin/` — Dashboard utente: `http://<ip-server
    - chiama `mosquitto-admin`, che aggiunge l'utente a `passwd`, riscrive
      l'ACL (`rw plants/<pk>/#`) e invia SIGHUP al broker.
 3. Crea i **Device** Modbus del gateway (`Gateway`, `protocol=modbus`,
-   `is_enabled`, `slave_id`, `port` di mbusd, `start_address` in esadecimale,
-   `word_count`, `register_type`) e le relative **variabili**.
+   `is_enabled`, `slave_id`, `port` di mbusd). Nel campo **Preset** scegli il
+   modello di inverter: blocchi di lettura e variabili vengono creati da soli
+   (vedi [Preset dei dispositivi](#preset-dei-dispositivi)). Con
+   "— Nessuno (mappatura manuale) —" inserisci a mano i **blocchi di lettura**
+   (tipo di registro, `start_address` in esadecimale, `word_count`; un device
+   può averne più di uno) e le **variabili**.
 
 > Il bundle contiene un `telegraf.conf` generato dai dispositivi **Modbus
 > abilitati** presenti in quel momento. Crea i dispositivi **prima** di
@@ -401,7 +406,7 @@ sudo bash -c 'set -a; . /etc/default/telegraf; telegraf --config /etc/telegraf/t
 ```
 
 Nell'output di `--test` devono comparire righe `modbus,device_id=…,gateway_id=…
-reg_0x0280=…i,…`.
+ir_0x0280=…i,…` (o `hr_0x…` per gli holding register).
 
 ### 6. Verifica end-to-end dal server
 
@@ -454,8 +459,8 @@ fermare la raccolta dati.
 
 ### Aggiornare `telegraf.conf` dopo modifiche ai dispositivi
 
-Se aggiungi o togli un dispositivo, oppure cambi `start_address`,
-`word_count`, `slave_id`, `port` o `register_type`, devi rigenerare la
+Se aggiungi o togli un dispositivo, oppure cambi i suoi blocchi di lettura,
+`slave_id` o `port`, devi rigenerare la
 configurazione del gateway. **Non serve toccare le credenziali**: basta il
 solo `telegraf.conf`.
 
@@ -471,6 +476,47 @@ ssh $GATEWAY 'sudo install -o telegraf -g telegraf -m 644 /tmp/telegraf.conf /et
 Le modifiche alle sole **variabili** (fattori di conversione, formule,
 endianness…) **non** richiedono di aggiornare Telegraf, perché la conversione
 avviene sul server.
+
+### Preset dei dispositivi
+
+I preset sono file JSON in `user_devices/presets/<categoria>/` (per ora solo
+`inverter/`). Alla creazione di un device, il preset scelto crea:
+
+- i **blocchi di lettura** (input e/o holding register, al massimo 125 word
+  ciascuno);
+- le **variabili Modbus** (indirizzo, tipo di registro, 16/32/64 bit, segno,
+  ordine delle word, fattore di conversione, `offset`);
+- le **variabili calcolate**: `Power`, alias in W della potenza AC di uscita
+  usato per l'integrale di energia e per il grafico, e le somme per i valori a
+  32 bit con registri non consecutivi (`<nome> lo` + `<nome> hi`).
+
+Il preset applicato resta visibile (in sola lettura) nella scheda del device;
+blocchi e variabili si possono poi modificare a mano. Ogni file indica in
+`source` progetto, licenza e commit di origine e in `notes` i prefissi del
+numero di serie dei modelli coperti. **Prima di usare un preset su un impianto
+verifica i valori** con la documentazione del costruttore: le mappe vengono
+da progetti open source per Home Assistant e non sono state provate qui su
+dispositivi reali.
+
+I file vengono generati da `tools/build_presets.py` a partire da
+[ha-solarman](https://github.com/davidrapan/ha-solarman),
+[home_assistant_solarman](https://github.com/StephanJoubert/home_assistant_solarman)
+e [homeassistant-solax-modbus](https://github.com/wills106/homeassistant-solax-modbus).
+Per aggiornarli (sull'host, serve Python ≥ 3.11 con `pyyaml` e `pymodbus>=3.8`):
+
+```bash
+git clone --depth 1 https://github.com/davidrapan/ha-solarman /tmp/up/ha-solarman
+git clone --depth 1 https://github.com/StephanJoubert/home_assistant_solarman /tmp/up/home_assistant_solarman
+git clone --depth 1 https://github.com/wills106/homeassistant-solax-modbus /tmp/up/homeassistant-solax-modbus
+python tools/build_presets.py --solarman /tmp/up/ha-solarman \
+    --solarman-legacy /tmp/up/home_assistant_solarman \
+    --solax /tmp/up/homeassistant-solax-modbus
+docker compose restart web   # i preset vengono letti una volta all'avvio
+```
+
+Vengono importate solo le misure numeriche; sono esclusi impostazioni
+scrivibili, stringhe, enum, bit e maschere, valori calcolati in Python e
+sensori composti.
 
 ### Intervalli di acquisizione
 
@@ -529,7 +575,7 @@ docker compose logs -f web                # Django
 docker compose exec mosquitto mosquitto_sub -h localhost -p 1883 \
   -u django-consumer -P "$(grep MQTT_CONSUMER_PASSWORD .env | cut -d= -f2)" -t '#' -v
 
-# Età dell'ultimo snapshot di un device (campo "ts", epoch)
+# Ultimo snapshot di un device: "ts" (epoch) e per ogni registro [valore, ts]
 docker compose exec redis redis-cli GET mqtt:rawdata:<device_pk>
 ```
 
@@ -643,7 +689,7 @@ Management command utili (`user_devices/management/commands/`):
 ```
 energy_monitoring/            # progetto Django (settings, celery.py con beat schedule)
 user_devices/
-├── models.py                 # Gateway (+use_mqtt), Device, variabili, dati, GatewayMqttCredentials
+├── models.py                 # Gateway (+use_mqtt), Device, ModbusReadBlock, variabili, dati, GatewayMqttCredentials
 ├── tasks.py                  # scan_and_read_devices: cache MQTT / Modbus TCP / DLMS
 ├── functions.py              # map/compute variabili ed energia, lettura Modbus e DLMS
 ├── signals.py                # propagazione utenti + provisioning MQTT su Gateway
@@ -652,7 +698,9 @@ user_devices/
 │   ├── consumer.py           # consumer MQTT → Redis
 │   ├── cache.py              # cache registri grezzi (TTL 15 min, freschezza 5 min)
 │   └── admin_client.py       # client REST per mosquitto-admin
+├── presets/                  # preset di mappatura (inverter/*.json) e apply_preset
 └── management/commands/      # export_telegraf_config, generate_fake_data, ...
+tools/build_presets.py        # genera i preset dai progetti open source
 mosquitto/
 ├── config/mosquitto.conf     # listener 1883 (interno) e 8883 (TLS), ACL
 ├── config/passwd, acl        # generati da bootstrap / mosquitto-admin

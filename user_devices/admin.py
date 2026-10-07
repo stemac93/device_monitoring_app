@@ -1,10 +1,11 @@
 from django.contrib import admin, messages
-from .models import User, Gateway, Device, DeviceVariable, ModbusMappingVariable, DlmsMappingVariable, ComputedVariable, Button, DeviceData, EnergyData, GatewayData, GatewayMqttCredentials
+from .models import User, Gateway, Device, DeviceVariable, ModbusReadBlock, ModbusMappingVariable, DlmsMappingVariable, ComputedVariable, Button, DeviceData, EnergyData, GatewayData, GatewayMqttCredentials
 from .commands import set_pin_status
 from django.utils.html import format_html
 from django.urls import reverse
 from adminsortable2.admin import  SortableAdminBase, SortableStackedInline
 from .forms import DeviceForm, DlmsMappingVariableForm
+from .presets import apply_preset
 
 # Importa il modulo admin_mqtt per registrare GatewayMqttCredentialsAdmin
 # e le funzioni di provisioning. L'import esegue il @admin.register lì dentro.
@@ -125,10 +126,16 @@ class GatewayAdmin(admin.ModelAdmin):
         if n_err:
             self.message_user(request, f"{n_err} con errori.", messages.WARNING)
 
+class ModbusReadBlockInline(admin.TabularInline):
+    model = ModbusReadBlock
+    extra = 0
+    fields = ('register_type', 'start_address', 'word_count', 'order')
+    classes = ['modbus-inline']
+
 class MemoryMappingInlineModbus(SortableStackedInline, admin.StackedInline):
     model = ModbusMappingVariable
     extra = 0
-    fields = ('var_name', 'address', 'unit', 'conversion_factor', 'bit_length','endianness', 'is_signed', 'show_on_graph', 'show_in_homepage') 
+    fields = ('var_name', 'register_type', 'address', 'unit', 'conversion_factor', 'offset', 'bit_length','endianness', 'is_signed', 'show_on_graph', 'show_in_homepage') 
     sortable = 'order'
     classes = ['modbus-inline']
     
@@ -159,16 +166,30 @@ class DeviceAdmin(SortableAdminBase, admin.ModelAdmin):
     search_fields = ('user','Gateway')
     #inlines = [MemoryMappingInlineModbus, ComputedVariableInline]
     actions = ['clone_device']
-    readonly_fields = ('get_users',)
+    readonly_fields = ('get_users', 'preset')
     exclude = ('user',)  # Hide the actual editable ManyToMany field
     fieldsets = (
         (None, {
-            'fields': ( 'is_enabled', 'name', 'Gateway', 'protocol', 'slave_id','register_type', 'start_address', 'word_count', 'port')
+            'fields': ( 'is_enabled', 'name', 'Gateway', 'protocol', 'slave_id', 'port', 'preset')
         }),
         ('Energy Display Options', {
             'fields': ('show_energy','show_energy_daily', 'show_energy_weekly', 'show_energy_monthly'),
         }),
     )
+
+    def get_fieldsets(self, request, obj=None):
+        # In creazione il preset si sceglie dal selettore, poi resta in sola lettura
+        if obj is None:
+            main = ('is_enabled', 'name', 'Gateway', 'protocol', 'slave_id', 'port', 'apply_preset')
+            return ((None, {'fields': main}),) + self.fieldsets[1:]
+        return self.fieldsets
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        preset_id = form.cleaned_data.get('apply_preset')
+        if not change and preset_id and obj.protocol == 'modbus':
+            apply_preset(obj, preset_id)
+            self.message_user(request, f"Preset '{preset_id}' applicato: controlla blocchi e variabili.")
     
     class Media:
         js = ('admin/js/device_admin.js',)
@@ -179,6 +200,7 @@ class DeviceAdmin(SortableAdminBase, admin.ModelAdmin):
     
     def get_inline_instances(self, request, obj=None):
         return [
+            ModbusReadBlockInline(self.model, self.admin_site),
             MemoryMappingInlineModbus(self.model, self.admin_site),
             MemoryMappingInlineDlms(self.model, self.admin_site),
             ComputedVariableInline(self.model, self.admin_site),
@@ -208,8 +230,6 @@ class DeviceAdmin(SortableAdminBase, admin.ModelAdmin):
                 Gateway=device.Gateway,
                 is_enabled=False,  # Start disabled for safety
                 slave_id=device.slave_id,
-                start_address=device.start_address,
-                bytes_count=device.bytes_count,
                 port=device.port,
                 availability=device.availability,
                 show_energy=device.show_energy,
@@ -218,14 +238,24 @@ class DeviceAdmin(SortableAdminBase, admin.ModelAdmin):
                 show_energy_monthly=device.show_energy_monthly,
                 daily_production=device.daily_production,
                 daily_consumption=device.daily_consumption,
-                register_type=device.register_type,
-                protocol=device.protocol
+                protocol=device.protocol,
+                preset=device.preset
             )
             
             # Copy user relationships
             for user in device.user.all():
                 cloned_device.user.add(user)
             
+            # Clone ModbusReadBlock instances
+            for block in device.read_blocks.all():
+                ModbusReadBlock.objects.create(
+                    device=cloned_device,
+                    register_type=block.register_type,
+                    start_address=block.start_address,
+                    word_count=block.word_count,
+                    order=block.order
+                )
+
             # Clone ModbusMappingVariable instances
             for modbus_var in device.modbus_variables.all():
                 ModbusMappingVariable.objects.create(
@@ -236,10 +266,13 @@ class DeviceAdmin(SortableAdminBase, admin.ModelAdmin):
                     show_on_graph=modbus_var.show_on_graph,
                     show_in_homepage=modbus_var.show_in_homepage,
                     order=modbus_var.order,
+                    register_type=modbus_var.register_type,
                     address=modbus_var.address,
                     conversion_factor=modbus_var.conversion_factor,
+                    offset=modbus_var.offset,
                     bit_length=modbus_var.bit_length,
-                    is_signed=modbus_var.is_signed
+                    is_signed=modbus_var.is_signed,
+                    endianness=modbus_var.endianness
                 )
             
             # Clone DlmsMappingVariable instances
