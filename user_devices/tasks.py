@@ -15,24 +15,10 @@ logger = logging.getLogger(__name__)
 
 redis_client = Redis(host="redis", port=6379)
 
-"""
-Celery task, un'istanza per gateway. Comportamento per ramo Modbus:
-
-- Se gateway.use_mqtt == False (default): polling Modbus TCP diretto via mbusd,
-  come prima della migrazione. Nessun cambiamento osservabile.
-- Se gateway.use_mqtt == True: legge gli ultimi valori RAW dalla cache Redis
-  popolata dal consumer MQTT (Telegraf pubblica ogni ~30s).
-
-Il ramo DLMS è invariato e non dipende dal flag.
-
-Questo permette una migrazione gateway-per-gateway: abiliti `use_mqtt` su un
-singolo Gateway dopo aver configurato Telegraf sul suo RPi, e solo quel
-gateway passa al nuovo percorso. Gli altri continuano con polling TCP.
-"""
-
 
 @shared_task(soft_time_limit=240, time_limit=300)
 def scan_and_read_devices(gateway_ip):
+    """Branching su gateway.protocol_mode."""
     lock_key = f"lock_device_{gateway_ip}"
 
     with Lock(redis_client, lock_key, timeout=300):
@@ -43,156 +29,174 @@ def scan_and_read_devices(gateway_ip):
             return
 
         logger.info(
-            "Processing devices for gateway %s (use_mqtt=%s)",
+            "Processing devices for gateway %s (protocol_mode=%s)",
             gateway.ip_address,
-            gateway.use_mqtt,
+            gateway.protocol_mode,
         )
         devices = Device.objects.filter(Gateway=gateway)
         if not devices:
             logger.info("No devices found for gateway %s", gateway.ip_address)
             return
 
-        skip_dlms_devices = False
-        client = None
+        if gateway.protocol_mode == "mqtt":
+            _scan_mqtt(gateway, devices)
+        elif gateway.protocol_mode == "modbus_direct":
+            _scan_modbus_direct(gateway, devices)
+        elif gateway.protocol_mode == "dlms":
+            _scan_dlms(gateway, devices)
+        else:
+            logger.warning(
+                "Unknown protocol_mode=%s for gateway %s, skipping",
+                gateway.protocol_mode,
+                gateway.ip_address,
+            )
 
+
+def _scan_mqtt(gateway, devices):
+    for device in devices:
+        if not device.is_enabled:
+            continue
+        try:
+            base_values = get_raw(device.pk)
+            if base_values is None:
+                age = get_raw_age(device.pk)
+                if age is None:
+                    logger.info("No MQTT data yet for device %s (pk=%s)", device.name, device.pk)
+                else:
+                    logger.warning(
+                        "Stale MQTT data for device %s (age=%.0fs) - skipping",
+                        device.name,
+                        age,
+                    )
+                continue
+
+            logger.info(
+                "MQTT cache hit for device %s (pk=%s): %d registers",
+                device.name,
+                device.pk,
+                len(base_values),
+            )
+            mapped_values = functions.map_variables(base_values, device)
+            computed_values = functions.compute_variables(mapped_values, device)
+            values = {**mapped_values, **computed_values}
+            _persist_device_values(device, values)
+
+        except Exception as e:
+            logger.error("Error processing device %s (mqtt): %s", device.name, e)
+        finally:
+            time.sleep(0.05)
+
+
+def _scan_modbus_direct(gateway, devices):
+    """Polling Modbus TCP via mbusd in VPN. Modalità legacy/debug."""
+    client = None
+    try:
         for device in devices:
             if not device.is_enabled:
                 continue
-
-            values = None
             try:
-                if device.protocol == "modbus":
-                    if gateway.use_mqtt:
-                        values = _process_modbus_from_cache(device)
-                    else:
-                        client, values = _process_modbus_from_tcp(device, gateway, client)
+                if client is not None:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
 
-                elif device.protocol == "dlms" and not skip_dlms_devices:
-                    # Ramo DLMS: invariato, polling diretto
-                    if not functions.probe_dlms_device(device, timeout=30):
-                        skip_dlms_devices = True
-                        time.sleep(1)
-                        continue
-                    logger.info("Reading DLMS device %s", device.name)
-                    values = functions.read_dlms_values(device)
-                    logger.info("DLMS values read: %s", values)
-                else:
+                client = ModbusTcpClient(
+                    gateway.ip_address,
+                    port=device.port,
+                    timeout=30,
+                )
+                if not client.connect():
+                    logger.warning(
+                        "Failed to connect to %s:%s for device %s",
+                        gateway.ip_address,
+                        device.port,
+                        device.name,
+                    )
+                    time.sleep(1)
                     continue
 
-                if values is not None:
-                    device.availability = functions.compute_device_availability(device, values)
-                    logger.info("Device availability: %s", device.availability)
+                logger.info(
+                    "TCP connected to %s on %s:%s",
+                    device.name,
+                    gateway.ip_address,
+                    device.port,
+                )
+                base_values = functions.read_modbus_registers(device, client)
+                if base_values is None:
+                    continue
 
-                    device_data = DeviceData.objects.filter(device_name=device)
-                    energy_data = EnergyData.objects.filter(device_name=device)
-                    energy_values = functions.compute_energy(values, device_data, energy_data)
-
-                    functions.store_data_in_database(device, values)
-                    logger.info("Data saved for device %s", device.name)
-
-                    if energy_values is not None:
-                        functions.store_energy_data_in_database(device, energy_values)
-                        device.daily_production = energy_values.get(
-                            "Energy_daily_produced", {}
-                        ).get("value", 0.0)
-                        device.daily_consumption = energy_values.get(
-                            "Energy_daily_consumed", {}
-                        ).get("value", 0.0)
-                        logger.info("Energy data saved for device %s", device.name)
-
-                    device.save()
+                mapped_values = functions.map_variables(base_values, device)
+                computed_values = functions.compute_variables(mapped_values, device)
+                values = {**mapped_values, **computed_values}
+                _persist_device_values(device, values)
 
             except Exception as e:
-                logger.error("Error processing device %s: %s", device.name, e)
-                continue
+                logger.error("Error processing device %s (modbus_direct): %s", device.name, e)
             finally:
                 time.sleep(0.1)
-
-        # Chiudi eventuale client TCP aperto in modalità polling
+    finally:
         if client is not None:
             try:
                 client.close()
-            except Exception as e:
-                logger.warning("Error closing Modbus client: %s", e)
+            except Exception:
+                pass
 
 
-def _process_modbus_from_cache(device):
-    """Modalità MQTT: recupera ultimi registri RAW dalla cache Redis popolata
-    dal consumer MQTT.
-
-    Ritorna dict `values` nello stesso formato del polling, oppure None se
-    dati assenti o stale (in quel caso il device non viene aggiornato in DB
-    per evitare di scrivere valori finti durante disconnessioni).
-    """
-    base_values = get_raw(device.pk)
-    if base_values is None:
-        age = get_raw_age(device.pk)
-        if age is None:
-            logger.info("No MQTT data yet for device %s (pk=%s)", device.name, device.pk)
-        else:
-            logger.warning(
-                "Stale MQTT data for device %s (pk=%s, age=%.0fs) - skipping",
-                device.name,
-                device.pk,
-                age,
-            )
-        return None
-
-    logger.info(
-        "MQTT cache hit for device %s (pk=%s): %d registers",
-        device.name,
-        device.pk,
-        len(base_values),
-    )
-
-    mapped_values = functions.map_variables(base_values, device)
-    computed_values = functions.compute_variables(mapped_values, device)
-    return {**mapped_values, **computed_values}
-
-
-def _process_modbus_from_tcp(device, gateway, client):
-    """Modalità legacy: polling Modbus TCP diretto via mbusd, come prima.
-
-    Ritorna (client, values) per riutilizzare il client tra device sullo
-    stesso gateway quando possibile (anche se il codice originale chiudeva
-    e riapriva per ogni device; qui ricalchiamo lo stesso pattern).
-    """
-    # Come nel codice originale: una nuova connessione per device
-    if client is not None:
+def _scan_dlms(gateway, devices):
+    skip_dlms_devices = False
+    for device in devices:
+        if not device.is_enabled:
+            continue
+        if device.protocol != "dlms":
+            continue
+        if skip_dlms_devices:
+            continue
         try:
-            client.close()
-        except Exception:
-            pass
+            if not functions.probe_dlms_device(device, timeout=30):
+                skip_dlms_devices = True
+                time.sleep(1)
+                continue
+            logger.info("Reading DLMS device %s", device.name)
+            values = functions.read_dlms_values(device)
+            logger.info("DLMS values read: %s", values)
+            if values is not None:
+                _persist_device_values(device, values)
+        except Exception as e:
+            logger.error("Error processing device %s (dlms): %s", device.name, e)
+        finally:
+            time.sleep(0.1)
 
-    client = ModbusTcpClient(
-        gateway.ip_address,
-        port=device.port,
-        timeout=30,
-    )
-    if not client.connect():
-        logger.warning(
-            "Failed to connect to device on %s:%s",
-            gateway.ip_address,
-            device.port,
-        )
-        client.close()
-        time.sleep(1)
-        return None, None
 
-    logger.info("TCP connected to %s on %s:%s", device.name, gateway.ip_address, device.port)
+def _persist_device_values(device, values):
+    try:
+        device.availability = functions.compute_device_availability(device, values)
+        logger.info("Device availability: %s", device.availability)
 
-    base_values = functions.read_modbus_registers(device, client)
-    if base_values is None:
-        return client, None
+        device_data = DeviceData.objects.filter(device_name=device)
+        energy_data = EnergyData.objects.filter(device_name=device)
+        energy_values = functions.compute_energy(values, device_data, energy_data)
 
-    mapped_values = functions.map_variables(base_values, device)
-    computed_values = functions.compute_variables(mapped_values, device)
-    return client, {**mapped_values, **computed_values}
+        functions.store_data_in_database(device, values)
+        logger.info("Data saved for device %s", device.name)
+
+        if energy_values is not None:
+            functions.store_energy_data_in_database(device, energy_values)
+            device.daily_production = energy_values.get(
+                "Energy_daily_produced", {}
+            ).get("value", 0.0)
+            device.daily_consumption = energy_values.get(
+                "Energy_daily_consumed", {}
+            ).get("value", 0.0)
+            logger.info("Energy data saved for device %s", device.name)
+
+        device.save()
+    except Exception as e:
+        logger.error("Persist failed for device %s: %s", device.name, e)
 
 
 @shared_task
 def compute_plant_metrics():
-    """Invariato: aggregazione per-gateway, opera solo su DB."""
     logger.info("Computing plant metrics for all gateways...")
     try:
         gateways = Gateway.objects.all()
@@ -234,7 +238,6 @@ def check_all_devices():
 
 @shared_task
 def midnight_energy_aggregation():
-    """Invariato: legge solo dal DB."""
     from datetime import datetime, timezone, timedelta
 
     logger.info("Starting midnight energy aggregation...")

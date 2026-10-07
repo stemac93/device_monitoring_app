@@ -46,7 +46,7 @@ def backwards(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("user_devices", "0013_gatewaymqttcredentials"),
+        ("user_devices", "0014_protocol_mode"),
     ]
 
     operations = [

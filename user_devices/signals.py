@@ -48,10 +48,18 @@ def _generate_password() -> str:
 
 
 def _build_acl_entries():
+    """Stato ACL: consumer + tutti i gateway in modalità MQTT.
+
+    I gateway in modbus_direct/dlms restano nel DB (e le loro credenziali
+    eventualmente esistenti pure), ma NON sono inclusi nell'ACL — quindi se
+    qualcuno tenta di pubblicare con quelle credenziali viene rifiutato.
+    """
     entries = [
         admin_client.AclEntry(username="django-consumer", topics=["r plants/#"]),
     ]
     for cred in GatewayMqttCredentials.objects.select_related("gateway").all():
+        if cred.gateway.protocol_mode != "mqtt":
+            continue
         entries.append(
             admin_client.AclEntry(
                 username=cred.username,
@@ -72,24 +80,64 @@ def _sync_mosquitto_state():
 
 @receiver(post_save, sender=Gateway)
 def gateway_post_save(sender, instance, created, raw, **kwargs):
+    """Genera/elimina credenziali MQTT in base a `protocol_mode`.
+
+    - Alla creazione di un gateway con protocol_mode='mqtt': genera password
+      e configura Mosquitto.
+    - Cambio di un gateway esistente da/verso 'mqtt': aggiorna provisioning.
+      Se passa a non-mqtt, le credenziali rimangono nel DB ma l'utente viene
+      rimosso dal broker (per evitare connessioni stale).
+    - Cambio per altri campi (nome, ip, ecc.): nessuna azione MQTT.
+    """
     if raw:
         return
-    if not created:
-        return
-    if GatewayMqttCredentials.objects.filter(gateway=instance).exists():
+
+    has_creds = GatewayMqttCredentials.objects.filter(gateway=instance).exists()
+    is_mqtt = instance.protocol_mode == "mqtt"
+
+    if created:
+        # Nuovo gateway
+        if not is_mqtt:
+            return  # niente provisioning per modalità non-mqtt
+        _provision_mqtt_credentials(instance)
         return
 
+    # Aggiornamento di un gateway esistente
+    if is_mqtt and not has_creds:
+        # È stato cambiato a mqtt, va provisionato
+        _provision_mqtt_credentials(instance)
+    elif not is_mqtt and has_creds:
+        # È stato cambiato a non-mqtt: rimuovo l'utente dal broker
+        # ma lascio il record DB (nel caso si torni a mqtt)
+        username = _gateway_username(instance.pk)
+        try:
+            admin_client.delete_user(username)
+            _sync_mosquitto_state()
+            logger.info(
+                "Gateway %s passato a %s, utente MQTT %s rimosso dal broker",
+                instance.pk,
+                instance.protocol_mode,
+                username,
+            )
+        except admin_client.MosquittoAdminError as e:
+            logger.error("Failed to remove MQTT user %s after mode change: %s", username, e)
+
+
+def _provision_mqtt_credentials(instance):
+    """Genera credenziali MQTT per un Gateway e configura Mosquitto."""
     username = _gateway_username(instance.pk)
     password = _generate_password()
 
-    GatewayMqttCredentials.objects.create(
+    GatewayMqttCredentials.objects.update_or_create(
         gateway=instance,
-        username=username,
-        password_plaintext=password,
-        password_revealed=False,
+        defaults={
+            "username": username,
+            "password_plaintext": password,
+            "password_revealed": False,
+        },
     )
     logger.info(
-        "Created MQTT credentials for gateway pk=%s username=%s",
+        "Provisioned MQTT credentials for gateway pk=%s username=%s",
         instance.pk,
         username,
     )
@@ -107,6 +155,7 @@ def gateway_post_save(sender, instance, created, raw, **kwargs):
 
 @receiver(post_delete, sender=Gateway)
 def gateway_post_delete(sender, instance, **kwargs):
+    """Rimuove utente Mosquitto se esisteva (indipendente dal protocol_mode)."""
     username = _gateway_username(instance.pk)
     try:
         admin_client.delete_user(username)

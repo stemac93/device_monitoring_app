@@ -11,7 +11,7 @@ per gli utenti e in un'interfaccia admin.
 > gateway esegue **Telegraf**: legge i registri Modbus in locale e li
 > **pubblica via MQTT (TLS)** su un broker Mosquitto ospitato sul server.
 > Il vecchio polling Modbus è ancora disponibile e si sceglie **per singolo
-> gateway** con il flag `use_mqtt`, così puoi migrare un impianto alla volta.
+> gateway** con il campo `protocol_mode`, così puoi migrare un impianto alla volta.
 > I dispositivi DLMS continuano a essere interrogati direttamente come prima.
 
 ---
@@ -113,7 +113,7 @@ per gli utenti e in un'interfaccia admin.
    `mqtt:rawdata:{device_pk}` con TTL di 15 minuti. **Non scrive nel DB.**
 5. **Celery Beat** lancia `check_all_devices` → un task
    `scan_and_read_devices` per ogni gateway, protetto da un lock Redis.
-   Per i dispositivi Modbus di un gateway con `use_mqtt=True`, il task legge
+   Per i dispositivi Modbus di un gateway con `protocol_mode=mqtt`, il task legge
    la cache. Se lo snapshot ha più di 5 minuti (`RAW_FRESHNESS_SECONDS`) lo
    scarta e il dispositivo non viene aggiornato, così durante le
    disconnessioni non si salvano dati finti.
@@ -146,7 +146,7 @@ per gli utenti e in un'interfaccia admin.
 | Lettura registri            | pymodbus nel worker Celery                          | Telegraf in locale sul gateway                                               |
 | Tolleranza ai disservizi    | Una lettura fallita è un dato perso                 | Il broker conserva l'ultimo messaggio (retained) e Telegraf ha un buffer     |
 | Configurazione del gateway  | Solo `mbusd`                                        | `mbusd` + Telegraf, configurato con il bundle scaricato dall'admin           |
-| Scelta del percorso         | —                                                   | Flag `Gateway.use_mqtt` (predefinito `False` = legacy)                       |
+| Scelta del percorso         | —                                                   | Campo `Gateway.protocol_mode`: `mqtt` (predefinito), `modbus_direct`, `dlms` |
 | DLMS                        | Polling diretto                                     | **Invariato**: polling diretto                                               |
 | GPIO / SSH                  | Via SSH                                             | **Invariato**                                                                |
 
@@ -302,8 +302,8 @@ Admin: `http://<ip-server>:8000/admin/` — Dashboard utente: `http://<ip-server
 ### 8. Crea il gateway e i dispositivi nell'admin
 
 1. **User devices → Gateways → Add gateway**: `name`, `ip_address` (l'IP VPN
-   del gateway), `user` (chi deve vedere i dati). Per un gateway nuovo che
-   userà subito MQTT spunta **`Use mqtt`**.
+   del gateway), `user` (chi deve vedere i dati), **`Protocol mode`**
+   (`MQTT` è il valore predefinito; `Modbus TCP diretto` per il vecchio polling).
 2. **Salva.** Il signal `post_save`:
    - crea `GatewayMqttCredentials` (utente `gw-<pk>`, password casuale);
    - chiama `mosquitto-admin`, che aggiunge l'utente a `passwd`, riscrive
@@ -419,7 +419,7 @@ docker compose exec mosquitto mosquitto_sub -h localhost -p 1883 \
 # Cache Redis popolata dal consumer
 docker compose exec redis redis-cli KEYS 'mqtt:rawdata:*'
 
-# Celery usa la cache (richiede use_mqtt=True sul gateway)
+# Celery usa la cache (richiede protocol_mode=mqtt sul gateway)
 docker compose logs --tail=50 celery | grep "MQTT cache hit"
 
 # Dati salvati negli ultimi 5 minuti
@@ -442,16 +442,19 @@ fermare la raccolta dati.
    migrazione: **Admin → Gateways → seleziona → azione "Rigenera credenziali
    MQTT"**. L'azione crea le credenziali, aggiorna il broker e abilita il
    download del bundle.
-2. Lascia `use_mqtt = False`: il server continua con il polling Modbus TCP.
+2. Imposta `protocol_mode = Modbus TCP diretto`: il server continua con il
+   polling Modbus TCP. **Attenzione:** la migration `0014_protocol_mode` mette
+   tutti i gateway esistenti su `MQTT`, quindi dopo l'aggiornamento riporta a
+   `Modbus TCP diretto` quelli non ancora migrati.
 3. Installa Telegraf sul gateway come in
    [Deploy del client](#deploy-del-client-gateway). `mbusd` accetta più
    client, quindi per un po' leggono sia Telegraf sia il server.
 4. Verifica che i messaggi arrivino (`mosquitto_sub`, `KEYS mqtt:rawdata:*`).
-5. Spunta **`Use mqtt`** sul gateway e salva. Dal ciclo successivo di Celery
+5. Imposta **`protocol_mode = MQTT`** sul gateway e salva. Dal ciclo successivo di Celery
    Beat, i dispositivi Modbus di quel gateway vengono letti dalla cache
    (`MQTT cache hit` nei log di `celery`).
-6. **Rollback**: togli la spunta da `use_mqtt` e si torna subito al polling
-   diretto.
+6. **Rollback**: rimetti `protocol_mode = Modbus TCP diretto` e si torna
+   subito al polling diretto.
 
 ---
 
@@ -582,9 +585,10 @@ docker compose exec redis redis-cli GET mqtt:rawdata:<device_pk>
 ### Aggiornare il server
 
 > ⚠️ **Server installati prima di questa versione.** Prima Django usava le
-> credenziali DB scritte in `settings.py` e ignorava `.env`; ora usa le
-> `POSTGRES_*` di `.env`. Se il volume `postgres_data` è stato creato con
-> i valori di `settings.py` (utente `mac`, DB `energy-db`), **prima di
+> credenziali DB scritte in `settings.py` e ignorava `.env`; ora usa solo le
+> `POSTGRES_*` di `.env` (senza `.env` i valori predefiniti sono `postgres`,
+> password vuota, DB `energy_monitoring`). Se il volume `postgres_data` è
+> stato creato con i vecchi valori (utente `mac`, DB `energy-db`), **prima di
 > aggiornare** metti in `.env` quegli stessi valori (utente, password e nome
 > DB), altrimenti Django non si connette più.
 >
@@ -628,7 +632,7 @@ docker compose exec web python manage.py collectstatic --noinput
 | Telegraf: `x509: certificate is not valid for ...` | `MQTT_SERVER` usa un IP/host diverso dal SAN del certificato | Usa l'IP passato al bootstrap, oppure rigenera i certificati |
 | Telegraf: `not authorized` / `bad user name or password` | Credenziali vecchie o provisioning fallito | Controlla i log di `mosquitto-admin` e rigenera le credenziali |
 | Messaggi arrivano, ma nei log di Celery c'è `No MQTT data yet` / `Stale MQTT data` | Orologio del gateway sbagliato o Telegraf fermo da più di 5 min | Controlla NTP sul gateway e `systemctl status telegraf` |
-| Messaggi in cache, ma nessun `MQTT cache hit` | Il gateway ha ancora `use_mqtt=False` | Spunta `Use mqtt` sul gateway |
+| Messaggi in cache, ma nessun `MQTT cache hit` | Il gateway non è in `protocol_mode=mqtt` | Imposta `Protocol mode = MQTT` sul gateway |
 | Telegraf: errori Modbus / `connection refused` | `mbusd` non in ascolto su `127.0.0.1:<port>` oppure `slave_id` sbagliato | Verifica `mbusd` e i campi del Device, poi rigenera `telegraf.conf` |
 | `export_telegraf_config`: "Nessun device modbus abilitato" | Nessun Device con `protocol=modbus` e `is_enabled=True` | Crea o abilita i dispositivi |
 | Il signal di provisioning logga `MQTT provisioning failed` | `mosquitto-admin` giù o token errato | `docker compose ps`, verifica `MOSQUITTO_ADMIN_TOKEN` in `.env`, poi rigenera le credenziali |
@@ -654,8 +658,7 @@ docker compose exec web python manage.py collectstatic --noinput
   `mosquitto/certs/*`, `mosquitto/data/` e `mosquitto/log/` sono in
   `.gitignore`.
 - Da valutare prima di esporre il server fuori dalla VPN: `DEBUG = True` in
-  `settings.py`, dove restano anche le vecchie credenziali DB usate come
-  fallback se `.env` non le definisce; `web` usa `runserver`; le porte
+  `settings.py`; `web` usa `runserver`; le porte
   `5432` e `6379` sono pubblicate sull'host, quindi limitale con il firewall.
 
 ---
@@ -689,7 +692,7 @@ Management command utili (`user_devices/management/commands/`):
 ```
 energy_monitoring/            # progetto Django (settings, celery.py con beat schedule)
 user_devices/
-├── models.py                 # Gateway (+use_mqtt), Device, ModbusReadBlock, variabili, dati, GatewayMqttCredentials
+├── models.py                 # Gateway (+protocol_mode), Device, ModbusReadBlock, variabili, dati, GatewayMqttCredentials
 ├── tasks.py                  # scan_and_read_devices: cache MQTT / Modbus TCP / DLMS
 ├── functions.py              # map/compute variabili ed energia, lettura Modbus e DLMS
 ├── signals.py                # propagazione utenti + provisioning MQTT su Gateway
