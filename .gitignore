@@ -1,22 +1,15 @@
-.env
 docs/*
-
-# Bootstrap-generated secrets
-mosquitto/config/passwd
-mosquitto/config/acl
-mosquitto/certs/*.key
-mosquitto/certs/*.crt
-mosquitto/certs/*.srl
-mosquitto/data/
-mosquitto/log/
 docs/images/*
 
 .codegpt
 .coverage
 htmlconv
 htmlconv/*
-# Bootstrap-generated secrets and runtime files
+
+# Variabili d'ambiente e secret generati da bootstrap.sh
 .env
+.env.*
+!.env.example
 mosquitto/config/passwd
 mosquitto/config/acl
 mosquitto/certs/*.key
@@ -24,6 +17,13 @@ mosquitto/certs/*.crt
 mosquitto/certs/*.srl
 mosquitto/data/
 mosquitto/log/
+
+# Bundle gateway scaricati dall'admin (contengono la password MQTT)
+telegraf.env
+*-bundle.tar.gz
+
+# Copie di backup (possono contenere credenziali)
+*.bak
 
 # Python compiled
 __pycache__/
