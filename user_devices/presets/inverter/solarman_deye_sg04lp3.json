@@ -839,9 +839,9 @@
       "formula": "Total_Power_of_Gen_port_lo+Total_Power_of_Gen_port_hi"
     },
     {
-      "name": "Power",
-      "unit": "W",
-      "formula": "Inverter_L1_Power+Inverter_L2_Power+Inverter_L3_Power",
+      "name": "Pout",
+      "unit": "kW",
+      "formula": "max(0, Inverter_L1_Power/1000 + Inverter_L2_Power/1000 + Inverter_L3_Power/1000)",
       "show_on_graph": true,
       "show_in_homepage": true
     }

@@ -31,22 +31,21 @@ class DeviceForm(forms.ModelForm):
                 cleaned_data[field] = None  # or a default like 0 or ''
 
         elif protocol == 'modbus':
-            # Optionally: enforce required if not already done in model
+            # `is None`/'' e non `not value`: 0 non va trattato come vuoto
             for field in modbus_fields:
                 value = cleaned_data.get(field)
-                if not value:
+                if value is None or value == '':
                     self.add_error(field, f"{field.replace('_', ' ').capitalize()} is required for Modbus.")
 
+            slave_id = cleaned_data.get('slave_id')
+            if slave_id is not None and not 1 <= slave_id <= 247:
+                self.add_error('slave_id', "Slave ID must be between 1 and 247.")
+
+            gateway = cleaned_data.get('Gateway')
+            if gateway is not None and gateway.protocol_mode == 'dlms':
+                self.add_error('protocol', "Il gateway è in modalità DLMS: i device Modbus non verrebbero letti.")
+
         return cleaned_data
-
-    def save_model(self, request, obj, form, change):
-        protocol = obj.protocol
-
-        # Reset dei campi modbus se protocollo DLMS (già implementato da te)
-        if protocol == 'dlms':
-            obj.slave_id = None
-
-        super().save_model(request, obj, form, change)
 
 
 #class DlmsMappingVariableForm(forms.ModelForm):

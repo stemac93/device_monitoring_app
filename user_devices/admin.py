@@ -14,7 +14,7 @@ from . import admin_mqtt  # noqa: F401
 class GatewayAdmin(admin.ModelAdmin):
     list_display = ('ip_address', 'name', 'protocol_mode', 'mqtt_status', 'get_users')
     list_filter = ('user', 'ip_address', 'protocol_mode')
-    search_fields = ('user', 'ip_address', 'name')
+    search_fields = ('user__username', 'ip_address', 'name')
     filter_horizontal = ('user',)
     exclude = ('performance', 'availability', 'production', 'consumption')
     readonly_fields = ('mqtt_bundle_link',)
@@ -76,29 +76,19 @@ class GatewayAdmin(admin.ModelAdmin):
                 '<em>Il bundle è già stato scaricato. Per ri-scaricarlo usa "Rigenera credenziali MQTT" '
                 'tra le azioni della lista Gateway.</em>'
             )
+        # POST dentro il form di modifica (che ha già il csrf token): un link GET
+        # potrebbe essere seguito da prefetch/crawler e consumerebbe la password
         return format_html(
-            '<a class="button" style="background:#28a745;color:white;padding:6px 12px;'
-            'border-radius:4px;text-decoration:none;" href="{}">⬇ Scarica bundle gateway</a>'
+            '<button type="submit" class="button" formaction="{}" formmethod="post" formnovalidate '
+            'style="background:#28a745;color:white;padding:6px 12px;border-radius:4px;">'
+            '⬇ Scarica bundle gateway</button>'
             '<br><small>Una volta scaricato, la password non sarà più recuperabile.</small>',
             url,
         )
     mqtt_bundle_link.short_description = 'Bundle Telegraf'
 
-    def save_model(self, request, obj, form, change):
-        super().save_model(request, obj, form, change)
-
-        # Sync users to each device under the gateway
-        for device in obj.devices.all():
-            for user in obj.user.all():
-                device.user.add(user)
-
-                # Also sync users to device data
-                for data in device.device_data.all():
-                    data.user.add(user)
-
-                # Also sync users to energy data
-                for energy_data in device.energy_data.all():
-                    energy_data.user.add(user)
+    # La propagazione degli utenti a device e dati è fatta dal signal m2m_changed
+    # (signals.sync_users_to_devices_and_data), scatenato da save_related.
 
     @admin.action(description="Rigenera credenziali MQTT (invalida quelle esistenti)")
     def regenerate_mqtt_credentials(self, request, queryset):
@@ -120,17 +110,8 @@ class GatewayAdmin(admin.ModelAdmin):
             username = _gateway_username(gw.pk)
             new_password = _generate_password()
 
-            cred, _ = GatewayMqttCredentials.objects.update_or_create(
-                gateway=gw,
-                defaults={
-                    'username': username,
-                    'password_plaintext': new_password,
-                    'password_revealed': False,
-                },
-            )
             try:
                 admin_client.add_user(username=username, password=new_password)
-                n_ok += 1
             except admin_client.MosquittoAdminError as e:
                 n_err += 1
                 self.message_user(
@@ -138,12 +119,27 @@ class GatewayAdmin(admin.ModelAdmin):
                     f"Errore broker per gateway {gw.pk}: {e}",
                     messages.ERROR,
                 )
+                continue
+
+            # Il DB si aggiorna solo se il broker ha accettato la nuova password,
+            # altrimenti il bundle conterrebbe credenziali non valide
+            GatewayMqttCredentials.objects.update_or_create(
+                gateway=gw,
+                defaults={
+                    'username': username,
+                    'password_plaintext': new_password,
+                    'password_revealed': False,
+                },
+            )
+            n_ok += 1
 
         # Una sola sync ACL alla fine
-        try:
-            _sync_mosquitto_state()
-        except Exception as e:
-            self.message_user(request, f"Errore sync ACL: {e}", messages.WARNING)
+        if not _sync_mosquitto_state():
+            self.message_user(
+                request,
+                "Errore sync ACL/reload Mosquitto: le nuove credenziali potrebbero non essere attive (vedi log).",
+                messages.WARNING,
+            )
 
         if n_ok:
             self.message_user(
@@ -197,7 +193,7 @@ class DeviceAdmin(SortableAdminBase, admin.ModelAdmin):
     form = DeviceForm
     list_display = ('name','is_enabled', 'get_users','Gateway__name', 'Gateway__ip_address', 'protocol')
     list_filter = ('user','Gateway', 'is_enabled')
-    search_fields = ('user','Gateway')
+    search_fields = ('name', 'user__username', 'Gateway__name', 'Gateway__ip_address')
     #inlines = [MemoryMappingInlineModbus, ComputedVariableInline]
     actions = ['clone_device']
     readonly_fields = ('get_users', 'preset')
@@ -306,7 +302,7 @@ class DeviceAdmin(SortableAdminBase, admin.ModelAdmin):
                     offset=modbus_var.offset,
                     bit_length=modbus_var.bit_length,
                     is_signed=modbus_var.is_signed,
-                    endianness=modbus_var.endianness
+                    endianness=modbus_var.endianness,
                 )
             
             # Clone DlmsMappingVariable instances
@@ -362,7 +358,7 @@ class GatewayDataAdmin(admin.ModelAdmin):
 
 class DeviceDataAdmin(admin.ModelAdmin):
     list_display = ('device_name', 'timestamp','get_users', 'Gateway__ip_address')
-    search_fields = ('user__username', 'Gateway__ip_address', 'name__device_name')
+    search_fields = ('user__username', 'Gateway__ip_address', 'device_name__name')
     list_filter = ('Gateway__ip_address', 'device_name', 'timestamp')
     readonly_fields = ('get_users', 'device_name', 'Gateway', 'timestamp','data')
     fieldsets = (
@@ -403,8 +399,10 @@ class ButtonAdmin(admin.ModelAdmin):
         Display a custom toggle button in the admin interface.
         """
         url = reverse('admin:toggle_button_action', args=[obj.pk])
+        # POST dentro il form del changelist (che contiene già il csrf token):
+        # un link GET azionerebbe il relè senza protezione CSRF
         return format_html(
-            '<a class="button" href="{}">Toggle</a>',
+            '<button type="submit" class="button" formaction="{}" formmethod="post">Toggle</button>',
             url
         )
 
@@ -431,7 +429,11 @@ class ButtonAdmin(admin.ModelAdmin):
         """
         Handle the toggle button action.
         """
-        button = Button.objects.get(pk=pk)
+        from django.http import HttpResponseNotAllowed
+        from django.shortcuts import get_object_or_404
+        if request.method != 'POST':
+            return HttpResponseNotAllowed(['POST'])
+        button = get_object_or_404(Button, pk=pk)
         status = 'on' if not button.is_active else 'off'
 
         # Call the SSH function

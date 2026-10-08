@@ -99,6 +99,18 @@ class ModbusReadBlock(models.Model):
     def __str__(self):
         return f"{self.register_type} {self.start_address} x{self.word_count}"
 
+    def clean(self):
+        # Gli indirizzi sono usati come int(start_address, 16) in lettura ed export
+        try:
+            start = int(str(self.start_address), 16)
+        except ValueError:
+            start = -1
+        if not 0 <= start <= 0xFFFF:
+            raise ValidationError({'start_address': "Start address must be hexadecimal between 0x0000 and 0xFFFF (e.g. 0x0280)."})
+        # 125 = massimo di registri in una richiesta Modbus (Telegraf legge il blocco intero)
+        if not 1 <= (self.word_count or 0) <= 125:
+            raise ValidationError({'word_count': "Word count must be between 1 and 125."})
+
 class DeviceVariable(models.Model):   
     VARIABLE_TYPE_CHOICES = [
         ('memory', 'Memory Mapping'),
@@ -234,6 +246,8 @@ class Button(models.Model):
         ordering = ['label']
 
     def __str__(self):
+        if self.Gateway is None:  # FK nullable
+            return f"{self.label} (no gateway)"
         return f"{self.Gateway.name}, {self.Gateway.ip_address}"
 
 class GatewayMqttCredentials(models.Model):
@@ -278,11 +292,19 @@ class GatewayMqttCredentials(models.Model):
         return f"{self.username} (gateway pk={self.gateway_id})"
 
     def reveal_once(self) -> str:
-        """Ritorna la password in chiaro UNA SOLA VOLTA, poi la azzera."""
-        if self.password_revealed:
-            return ""
-        pw = self.password_plaintext
-        self.password_plaintext = ""
-        self.password_revealed = True
-        self.save(update_fields=["password_plaintext", "password_revealed", "updated_at"])
+        """Ritorna la password in chiaro UNA SOLA VOLTA, poi la azzera.
+
+        La riga viene riletta sotto lock: due chiamate concorrenti non
+        ottengono entrambe la password."""
+        from django.db import transaction
+
+        with transaction.atomic():
+            locked = type(self).objects.select_for_update().get(pk=self.pk)
+            if locked.password_revealed:
+                return ""
+            pw = locked.password_plaintext
+            locked.password_plaintext = ""
+            locked.password_revealed = True
+            locked.save(update_fields=["password_plaintext", "password_revealed", "updated_at"])
+        self.password_plaintext, self.password_revealed = "", True
         return pw

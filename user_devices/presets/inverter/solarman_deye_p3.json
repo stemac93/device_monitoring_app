@@ -10,7 +10,7 @@
     "commit": "ac1d88b83268beeb0511b8a1b7fc8e17deddc044",
     "file": "custom_components/solarman/inverter_definitions/deye_p3.yaml"
   },
-  "power_variable": "Power",
+  "power_variable": "Inverter Power",
   "notes": [],
   "blocks": [
     {
@@ -3889,11 +3889,9 @@
       "formula": "Output_L3_Power_lo+Output_L3_Power_hi"
     },
     {
-      "name": "Power",
+      "name": "Inverter Power",
       "unit": "W",
-      "formula": "Power_lo+Power_hi",
-      "show_on_graph": true,
-      "show_in_homepage": true
+      "formula": "Power_lo+Power_hi"
     },
     {
       "name": "Load UPS L1 Power",
@@ -3954,6 +3952,13 @@
       "name": "Generator Power",
       "unit": "W",
       "formula": "Generator_Power_lo+Generator_Power_hi"
+    },
+    {
+      "name": "Pout",
+      "unit": "kW",
+      "formula": "max(0, Inverter_Power/1000)",
+      "show_on_graph": true,
+      "show_in_homepage": true
     }
   ]
 }

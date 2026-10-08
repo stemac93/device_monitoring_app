@@ -310,13 +310,12 @@ mosquitto-admin/                  # helper FastAPI
 user_devices/
 ├── admin.py                      # bottone bundle, azione rigenera
 ├── admin_mqtt.py                 # registrazione admin + view bundle
-├── models.py                     # +Gateway.use_mqtt, +GatewayMqttCredentials
+├── models.py                     # +Gateway.protocol_mode, +GatewayMqttCredentials
 ├── signals.py                    # post_save Gateway → MQTT provision
 ├── tasks.py                      # Modbus polling → cache MQTT (DLMS invariato)
 ├── urls.py                       # +/mqtt/gateway/<pk>/bundle/
 ├── migrations/
-│   ├── 0012_gateway_use_mqtt.py
-│   └── 0013_gatewaymqttcredentials.py
+│   └── 0001_initial.py           # migration unica (solo installazioni nuove)
 ├── mqtt/
 │   ├── admin_client.py           # client REST per mosquitto-admin
 │   ├── cache.py                  # Redis cache RAW

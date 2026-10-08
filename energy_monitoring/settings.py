@@ -78,11 +78,13 @@ WSGI_APPLICATION = 'energy_monitoring.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('POSTGRES_DB', 'energy_monitoring'),
-        'USER': os.environ.get('POSTGRES_USER', 'postgres'),
-        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
-        'HOST': os.environ.get('POSTGRES_HOST', 'database'),
-        'PORT': int(os.environ.get('POSTGRES_PORT', '5432')),
+        # docker-compose passa stringa vuota se la variabile manca in .env:
+        # `or` fa scattare comunque il default
+        'NAME': os.getenv('POSTGRES_DB') or 'energy_monitoring',
+        'USER': os.getenv('POSTGRES_USER') or 'postgres',
+        'PASSWORD': os.getenv('POSTGRES_PASSWORD') or '',
+        'HOST': os.getenv('POSTGRES_HOST') or 'database',
+        'PORT': int(os.getenv('POSTGRES_PORT') or 5432),
     }
 }
 
@@ -136,6 +138,8 @@ LOGIN_URL = 'login'  # Redirect here if a user is not authenticated
 LOGIN_REDIRECT_URL = 'home'  # Redirect here after successful login
 LOGOUT_REDIRECT_URL = 'login'  # Redirect here after logout
 
+# Crontab (es. midnight_energy_aggregation alle 00:05) in ora locale, non UTC
+CELERY_TIMEZONE = TIME_ZONE
 CELERY_BROKER_URL = "redis://redis:6379/0"
 CELERY_RESULT_BACKEND = "redis://redis:6379/0"
 #CELERY_BROKER_URL = 'redis://localhost:6379/0'

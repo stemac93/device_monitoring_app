@@ -3,6 +3,7 @@ docs/*
 
 # Bootstrap-generated secrets
 mosquitto/config/passwd
+mosquitto/config/acl
 mosquitto/certs/*.key
 mosquitto/certs/*.crt
 mosquitto/certs/*.srl
@@ -17,6 +18,7 @@ htmlconv/*
 # Bootstrap-generated secrets and runtime files
 .env
 mosquitto/config/passwd
+mosquitto/config/acl
 mosquitto/certs/*.key
 mosquitto/certs/*.crt
 mosquitto/certs/*.srl

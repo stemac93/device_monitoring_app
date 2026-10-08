@@ -10,7 +10,7 @@
     "commit": "ac1d88b83268beeb0511b8a1b7fc8e17deddc044",
     "file": "custom_components/solarman/inverter_definitions/chint_cps-scetl.yaml"
   },
-  "power_variable": "Power",
+  "power_variable": "Inverter Power",
   "notes": [],
   "blocks": [
     {
@@ -586,7 +586,7 @@
       "endianness": "big"
     },
     {
-      "name": "Power",
+      "name": "Inverter Power",
       "register_type": "holding",
       "address": "0x1037",
       "unit": "W",
@@ -594,9 +594,7 @@
       "offset": 0,
       "bit_length": 32,
       "is_signed": true,
-      "endianness": "big",
-      "show_on_graph": true,
-      "show_in_homepage": true
+      "endianness": "big"
     },
     {
       "name": "Reactive Power lo",
@@ -1077,6 +1075,13 @@
       "name": "Reactive Power",
       "unit": "var",
       "formula": "Reactive_Power_lo+Reactive_Power_hi"
+    },
+    {
+      "name": "Pout",
+      "unit": "kW",
+      "formula": "max(0, Inverter_Power/1000)",
+      "show_on_graph": true,
+      "show_in_homepage": true
     }
   ]
 }

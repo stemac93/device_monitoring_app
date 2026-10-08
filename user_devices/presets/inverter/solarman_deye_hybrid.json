@@ -10,7 +10,7 @@
     "commit": "ac1d88b83268beeb0511b8a1b7fc8e17deddc044",
     "file": "custom_components/solarman/inverter_definitions/deye_hybrid.yaml"
   },
-  "power_variable": "Power",
+  "power_variable": "Inverter Power",
   "notes": [],
   "blocks": [
     {
@@ -631,7 +631,7 @@
       "endianness": "big"
     },
     {
-      "name": "Power",
+      "name": "Inverter Power",
       "register_type": "holding",
       "address": "0x00AF",
       "unit": "W",
@@ -639,9 +639,7 @@
       "offset": 0,
       "bit_length": 16,
       "is_signed": true,
-      "endianness": "big",
-      "show_on_graph": true,
-      "show_in_homepage": true
+      "endianness": "big"
     },
     {
       "name": "DC Temperature",
@@ -709,6 +707,13 @@
       "name": "Generator Energy",
       "unit": "kWh",
       "formula": "Generator_Energy_lo+Generator_Energy_hi"
+    },
+    {
+      "name": "Pout",
+      "unit": "kW",
+      "formula": "max(0, Inverter_Power/1000)",
+      "show_on_graph": true,
+      "show_in_homepage": true
     }
   ]
 }

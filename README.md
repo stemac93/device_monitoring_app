@@ -114,9 +114,12 @@ per gli utenti e in un'interfaccia admin.
 5. **Celery Beat** lancia `check_all_devices` → un task
    `scan_and_read_devices` per ogni gateway, protetto da un lock Redis.
    Per i dispositivi Modbus di un gateway con `protocol_mode=mqtt`, il task legge
-   la cache. Se lo snapshot ha più di 5 minuti (`RAW_FRESHNESS_SECONDS`) lo
-   scarta e il dispositivo non viene aggiornato, così durante le
-   disconnessioni non si salvano dati finti.
+   la cache. Ogni snapshot viene elaborato una sola volta; i registri con più
+   di 5 minuti (`RAW_FRESHNESS_SECONDS`) vengono scartati e, se non ne resta
+   nessuno, il dispositivo non viene aggiornato, così durante le
+   disconnessioni non si salvano dati finti (la disponibilità invece scende).
+   I messaggi retained ricevuti alla riconnessione del consumer vengono
+   ignorati: potrebbero essere vecchi.
 6. Da qui la pipeline è **identica a prima**: `map_variables` →
    `compute_variables` → `compute_energy` → salvataggio su PostgreSQL
    (`DeviceData`, `EnergyData`). `compute_plant_metrics` e
@@ -437,24 +440,24 @@ Infine apri la dashboard `/home/` con un utente associato al gateway.
 I due percorsi convivono, quindi puoi migrare un gateway alla volta senza
 fermare la raccolta dati.
 
-1. **Gateway esistente senza credenziali MQTT.** Le credenziali vengono create
-   solo quando **si crea** un gateway. Per i gateway che esistevano prima della
-   migrazione: **Admin → Gateways → seleziona → azione "Rigenera credenziali
-   MQTT"**. L'azione crea le credenziali, aggiorna il broker e abilita il
-   download del bundle.
-2. Imposta `protocol_mode = Modbus TCP diretto`: il server continua con il
-   polling Modbus TCP. **Attenzione:** la migration `0014_protocol_mode` mette
-   tutti i gateway esistenti su `MQTT`, quindi dopo l'aggiornamento riporta a
-   `Modbus TCP diretto` quelli non ancora migrati.
-3. Installa Telegraf sul gateway come in
+1. Il gateway è in `protocol_mode = Modbus TCP diretto`: il server fa polling
+   Modbus TCP e il gateway non ha credenziali MQTT.
+2. Installa Telegraf sul gateway come in
    [Deploy del client](#deploy-del-client-gateway). `mbusd` accetta più
-   client, quindi per un po' leggono sia Telegraf sia il server.
+   client, quindi per un po' possono leggere sia Telegraf sia il server.
+3. Imposta **`protocol_mode = MQTT`** sul gateway e salva: vengono generate
+   le credenziali MQTT e il broker viene aggiornato. Scarica il bundle e
+   configura Telegraf. Dal ciclo successivo di Celery Beat i dispositivi
+   Modbus di quel gateway vengono letti dalla cache (`MQTT cache hit` nei log
+   di `celery`).
 4. Verifica che i messaggi arrivino (`mosquitto_sub`, `KEYS mqtt:rawdata:*`).
-5. Imposta **`protocol_mode = MQTT`** sul gateway e salva. Dal ciclo successivo di Celery
-   Beat, i dispositivi Modbus di quel gateway vengono letti dalla cache
-   (`MQTT cache hit` nei log di `celery`).
-6. **Rollback**: rimetti `protocol_mode = Modbus TCP diretto` e si torna
-   subito al polling diretto.
+5. **Rollback**: rimetti `protocol_mode = Modbus TCP diretto`. Le credenziali
+   MQTT vengono cancellate e l'utente rimosso dal broker; tornando a MQTT ne
+   vengono generate di nuove e va riscaricato il bundle.
+
+I contatori DLMS vengono interrogati direttamente in qualunque modalità. La
+modalità `DLMS` è per i gateway con soli contatori DLMS: non genera
+credenziali MQTT e non accetta device Modbus.
 
 ---
 
@@ -489,9 +492,13 @@ I preset sono file JSON in `user_devices/presets/<categoria>/` (per ora solo
   ciascuno);
 - le **variabili Modbus** (indirizzo, tipo di registro, 16/32/64 bit, segno,
   ordine delle word, fattore di conversione, `offset`);
-- le **variabili calcolate**: `Power`, alias in W della potenza AC di uscita
-  usato per l'integrale di energia e per il grafico, e le somme per i valori a
-  32 bit con registri non consecutivi (`<nome> lo` + `<nome> hi`).
+- le **variabili calcolate**: `Pout`, alias in kW della potenza AC di uscita
+  (mai negativo) usato per l'energia prodotta, la produzione dell'impianto e
+  il grafico, e le somme per i valori a 32 bit con registri non consecutivi
+  (`<nome> lo` + `<nome> hi`). Le variabili sorgente chiamate `Power` o
+  `Power Consumption` diventano `Inverter Power` / `Inverter Power
+  Consumption`: `compute_energy` interpreta `Power` come potenza con segno
+  (negativa = prodotta).
 
 Il preset applicato resta visibile (in sola lettura) nella scheda del device;
 blocchi e variabili si possono poi modificare a mano. Ogni file indica in
@@ -584,13 +591,12 @@ docker compose exec redis redis-cli GET mqtt:rawdata:<device_pk>
 
 ### Aggiornare il server
 
-> ⚠️ **Server installati prima di questa versione.** Prima Django usava le
-> credenziali DB scritte in `settings.py` e ignorava `.env`; ora usa solo le
-> `POSTGRES_*` di `.env` (senza `.env` i valori predefiniti sono `postgres`,
-> password vuota, DB `energy_monitoring`). Se il volume `postgres_data` è
-> stato creato con i vecchi valori (utente `mac`, DB `energy-db`), **prima di
-> aggiornare** metti in `.env` quegli stessi valori (utente, password e nome
-> DB), altrimenti Django non si connette più.
+> ⚠️ **Solo installazioni nuove.** Le migration sono state riunite in
+> un'unica `0001_initial`: un database creato con le migration precedenti
+> (fino a `0015`) non si aggiorna con `migrate`. Per un server esistente
+> serve un'installazione da zero (`./reset.sh`, poi `bootstrap.sh`) e la
+> ricreazione di gateway e device dall'admin. Gli aggiornamenti successivi a
+> questa versione funzionano normalmente con i comandi qui sotto.
 >
 > ⚠️ **PostgreSQL è fissato a `postgres:17`.** Prima era `postgres:latest`,
 > che ora corrisponde alla 18. Dalla 18 l'immagine rifiuta il volume montato

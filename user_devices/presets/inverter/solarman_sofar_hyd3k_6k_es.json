@@ -213,7 +213,7 @@
       "endianness": "big"
     },
     {
-      "name": "Power Consumption",
+      "name": "Inverter Power Consumption",
       "register_type": "holding",
       "address": "0x0213",
       "unit": "kW",
@@ -765,9 +765,9 @@
   ],
   "computed": [
     {
-      "name": "Power",
-      "unit": "W",
-      "formula": "PV_Instant_Generated_PW*1000",
+      "name": "Pout",
+      "unit": "kW",
+      "formula": "max(0, PV_Instant_Generated_PW)",
       "show_on_graph": true,
       "show_in_homepage": true
     }

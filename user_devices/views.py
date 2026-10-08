@@ -12,6 +12,10 @@ import json
 import logging 
 from datetime import datetime, timedelta
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.text import slugify
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_POST
 import csv
 from io import StringIO
 
@@ -48,7 +52,7 @@ def home_view(request):
             selected_date = None
     
     if not selected_date:
-        selected_date = timezone.now().date()
+        selected_date = timezone.localdate()  # data locale, non UTC
     
     # Calculate start and end of selected day
     start_of_day = timezone.make_aware(datetime.combine(selected_date, datetime.min.time()))
@@ -107,7 +111,7 @@ def home_view(request):
         last_data = DeviceData.objects.filter(device_name=var.device).order_by('-timestamp').first()
         logger.info(f"Last data: {last_data}")
         logger.info(f"Var name: {var.var_name}")
-        logger.info(f"Last data data: {last_data.data}")
+        logger.info(f"Last data data: {last_data.data if last_data else None}")
         sanitized_name = sanitize_variable_name(var.var_name)
         if last_data and sanitized_name in last_data.data:
             raw = last_data.data.get(sanitized_name)
@@ -259,6 +263,7 @@ def home_view(request):
     })
 
 
+@login_required
 def device_detail_view(request, device_name):
     # Get user's gateways first
     user_gateways = Gateway.objects.filter(user=request.user)
@@ -278,9 +283,7 @@ def device_detail_view(request, device_name):
         "gateway": device.Gateway,
         "device": device,
         "buttons": buttons,
-        "y_label": "",
-        "x_data": [],
-        "y_data": [],
+        "chart": {"y_label": "", "x_data": [], "y_data": []},
         "chart_error": "No data configure for this device yet.",
         "data": {}
     }
@@ -372,17 +375,17 @@ def device_detail_view(request, device_name):
                     try:
                         # Parse the timestamp and convert to local time
                         parsed_timestamp = datetime.fromisoformat(timestamp_str)
-                        timestamp = parsed_timestamp.strftime("%H:%M")
+                        timestamp = convert_to_local_time(parsed_timestamp).strftime("%H:%M")
                         timestamps.append(timestamp)
                     except Exception as e:
                         logger.info(f"Error parsing timestamp '{timestamp_str}': {e}")
                         # Fallback to entry timestamp
-                        timestamp = entry.timestamp.strftime("%H:%M")
+                        timestamp = convert_to_local_time(entry.timestamp).strftime("%H:%M")
                         timestamps.append(timestamp)
                 else:
                     # Fallback to entry timestamp if no timestamp in data
-                    timestamp = entry.timestamp.strftime("%H:%M")
-                    timestamps.append(timestamp)      
+                    timestamp = convert_to_local_time(entry.timestamp).strftime("%H:%M")
+                    timestamps.append(timestamp)
         elif device.protocol == "modbus":  # Corretto da "modubs" a "modbus"
             timestamps = [
                 convert_to_local_time(entry.timestamp).strftime("%H:%M")  # Formato consistente con DLMS
@@ -406,18 +409,19 @@ def device_detail_view(request, device_name):
             var_data = entry.data.get(sanitized_name, {})
             value = var_data.get("value", None) if isinstance(var_data, dict) else None
 
-        # Assume you have logic to generate x_data and y_data
-        context["x_data"] = json.dumps(x_data)
-        context["y_data"] = json.dumps(y_data)
-        context["y_label"] = y_variable.var_name
+        # Serializzato nel template con json_script (escape sicuro dentro <script>)
+        context["chart"] = {"y_label": y_variable.var_name, "x_data": x_data, "y_data": y_data}
         context["chart_error"] = None  # Clear the error
     else:
         logger.info("No y_variable found for chart")
 
     return render(request, 'device_detail.html', context)
 
+@login_required
+@require_POST  # con GET il CSRF non viene verificato: un <img src=...> azionerebbe il relè
 def toggle_button_status(request, button_id):
-    button = get_object_or_404(Button, id=button_id, Gateway__user=request.user)
+    # Solo i bottoni che l'admin ha reso visibili all'utente
+    button = get_object_or_404(Button, id=button_id, Gateway__user=request.user, show_in_user_page=True)
     status = 'on' if not button.is_active else 'off'
 
     # Use the utility function to toggle the button's state
@@ -428,8 +432,11 @@ def toggle_button_status(request, button_id):
         messages.success(request, f"Button '{button.label}' updated successfully.")
     else:
         messages.error(request, f"Error updating button: {response}")
-    # Redirect back to the referring page
-    return redirect(request.META.get('HTTP_REFERER', '/'))
+    # Redirect back to the referring page, solo se è di questo sito (no open redirect)
+    referer = request.META.get('HTTP_REFERER', '')
+    if url_has_allowed_host_and_scheme(referer, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        return redirect(referer)
+    return redirect('home')
 
 def download_data(request):
     """Handle data download requests with date range validation"""
@@ -458,21 +465,29 @@ def download_data(request):
         messages.error(request, 'Invalid date format.')
         return redirect('home')
     
-    # Validate date range (max 30 days)
-    if (end_date - start_date).days > 30:
-        messages.error(request, 'Date range cannot exceed 30 days.')
-        return redirect('home')
-    
     if start_date > end_date:
         messages.error(request, 'Start date must be before end date.')
         return redirect('home')
-    
+
+    # Validate date range (max 30 days, estremi inclusi)
+    if (end_date - start_date).days >= 30:
+        messages.error(request, 'Date range cannot exceed 30 days.')
+        return redirect('home')
+
     # Get user's gateways for security check
     user_gateways = Gateway.objects.filter(user=request.user)
-    
+
+    # data_type = "gateway_<id>" o "device_<id>"
+    kind, _, raw_id = data_type.partition('_')
+    try:
+        object_id = int(raw_id)
+    except ValueError:
+        messages.error(request, 'Invalid data type selected.')
+        return redirect('home')
+
     # Determine data source and get data
-    if data_type.startswith('gateway_'):
-        gateway_id = int(data_type.split('_')[1])
+    if kind == 'gateway':
+        gateway_id = object_id
         try:
             gateway = Gateway.objects.get(id=gateway_id, user=request.user)
         except Gateway.DoesNotExist:
@@ -492,8 +507,8 @@ def download_data(request):
         source_name = gateway.name
         data_type_name = 'Gateway'
         
-    elif data_type.startswith('device_'):
-        device_id = int(data_type.split('_')[1])
+    elif kind == 'device':
+        device_id = object_id
         try:
             device = Device.objects.get(id=device_id, Gateway__in=user_gateways)
         except Device.DoesNotExist:
@@ -524,7 +539,8 @@ def download_data(request):
     
     # Generate CSV
     response = HttpResponse(content_type='text/csv')
-    filename = f"{data_type_name}_{source_name}_{start_date_str}_to_{end_date_str}.csv"
+    # slugify: un nome con " o caratteri non ASCII romperebbe l'header
+    filename = f"{data_type_name}_{slugify(source_name) or 'data'}_{start_date.isoformat()}_to_{end_date.isoformat()}.csv"
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     
     writer = csv.writer(response)

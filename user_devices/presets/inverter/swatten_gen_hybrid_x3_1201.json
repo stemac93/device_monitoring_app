@@ -354,9 +354,9 @@
   ],
   "computed": [
     {
-      "name": "Power",
-      "unit": "W",
-      "formula": "Total_Output_Power",
+      "name": "Pout",
+      "unit": "kW",
+      "formula": "max(0, Total_Output_Power/1000)",
       "show_on_graph": true,
       "show_in_homepage": true
     }

@@ -1608,9 +1608,9 @@
   ],
   "computed": [
     {
-      "name": "Power",
-      "unit": "W",
-      "formula": "Output_Power",
+      "name": "Pout",
+      "unit": "kW",
+      "formula": "max(0, Output_Power/1000)",
       "show_on_graph": true,
       "show_in_homepage": true
     }

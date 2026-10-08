@@ -328,9 +328,9 @@
   ],
   "computed": [
     {
-      "name": "Power",
-      "unit": "W",
-      "formula": "Inverter_Power",
+      "name": "Pout",
+      "unit": "kW",
+      "formula": "max(0, Inverter_Power/1000)",
       "show_on_graph": true,
       "show_in_homepage": true
     }

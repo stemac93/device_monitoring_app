@@ -18,10 +18,16 @@ import tarfile
 from pathlib import Path
 
 from django.contrib import admin, messages
+from django.contrib.admin.views.decorators import staff_member_required
+from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
-from django.http import HttpResponse, HttpResponseNotAllowed, Http404
-from django.urls import path, reverse
+from django.core.management.base import CommandError
+from django.db import transaction
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404, redirect
 from django.utils.html import format_html
+from django.utils.text import slugify
+from django.views.decorators.http import require_POST
 
 from .models import Gateway, GatewayMqttCredentials
 
@@ -65,24 +71,20 @@ class GatewayMqttCredentialsAdmin(admin.ModelAdmin):
     password_status.short_description = "Stato password"
 
     def password_display(self, obj):
+        # Mai in chiaro qui: altrimenti chiunque abbia il permesso di vista la
+        # rileggerebbe a ogni apertura. Si consegna solo nel bundle (una volta).
         if obj.password_revealed:
             return format_html(
-                '<em>Password già mostrata in passato. Per re-fornirla a un gateway, '
+                '<em>Password già consegnata nel bundle. Per re-fornirla a un gateway, '
                 'rigenera dall\'azione "Rigenera credenziali" sull\'oggetto Gateway.</em>'
             )
         if not obj.password_plaintext:
             return format_html('<em>Vuota</em>')
         return format_html(
-            '<div style="background:#fff8d4;padding:8px;border:1px solid #c00;'
-            'border-radius:4px;font-family:monospace;font-size:14px;">'
-            '<strong>{}</strong>'
-            '<br><small style="color:#a30">Salva ORA questa password — '
-            'non sarà più recuperabile dopo aver lasciato questa pagina.</small>'
-            '</div>',
-            obj.password_plaintext,
+            '<em>Non ancora consegnata: scarica il bundle dalla pagina del Gateway.</em>'
         )
 
-    password_display.short_description = "Password (visibile UNA volta)"
+    password_display.short_description = "Password"
 
     def get_object(self, request, object_id, from_field=None):
         # Quando l'admin apre il dettaglio della credenziale, mostriamo la password
@@ -109,24 +111,23 @@ class GatewayMqttCredentialsAdmin(admin.ModelAdmin):
 # View custom: scarica bundle .tar.gz per un gateway
 # ---------------------------------------------------------------------------
 
+@staff_member_required
+@require_POST  # con GET un prefetch o un link esterno consumerebbe la password
 def gateway_bundle_view(request, gateway_pk: int):
     """Genera al volo un .tar.gz con telegraf.conf + ca.crt + telegraf.env + README.
 
     La password MQTT del gateway viene inclusa in `telegraf.env` in chiaro.
-    Dopo il primo download, la password salvata nel DB viene azzerata
-    (password_revealed = True).
+    Dopo il download la password salvata nel DB viene azzerata
+    (password_revealed = True). Tutto ciò che può fallire viene preparato
+    prima, così un errore non brucia la password.
 
-    Solo staff/superuser.
+    Solo staff.
     """
-    if not request.user.is_authenticated or not request.user.is_staff:
-        return HttpResponseNotAllowed(["GET"])
-
-    if request.method != "GET":
-        return HttpResponseNotAllowed(["GET"])
-
-    gateway = Gateway.objects.filter(pk=gateway_pk).first()
-    if not gateway:
-        raise Http404("Gateway not found")
+    # Il bundle contiene la password MQTT: serve il permesso di modifica del gateway
+    if not request.user.has_perm("user_devices.change_gateway"):
+        raise PermissionDenied
+    gateway = get_object_or_404(Gateway, pk=gateway_pk)
+    back = redirect("admin:user_devices_gateway_change", gateway.pk)
 
     if gateway.protocol_mode != "mqtt":
         messages.error(
@@ -134,34 +135,15 @@ def gateway_bundle_view(request, gateway_pk: int):
             f"Gateway {gateway.pk} è in modalità {gateway.protocol_mode}. "
             "Il bundle Telegraf è disponibile solo per gateway in modalità MQTT.",
         )
-        return HttpResponseNotAllowed(["GET"])
-
-    cred = GatewayMqttCredentials.objects.filter(gateway=gateway).first()
-    if not cred:
-        messages.error(
-            request,
-            f"Gateway {gateway.pk} non ha credenziali MQTT. Salva il gateway per generarle automaticamente.",
-        )
-        return HttpResponseNotAllowed(["GET"])
-
-    if cred.password_revealed or not cred.password_plaintext:
-        messages.error(
-            request,
-            "La password MQTT è già stata rivelata in passato. "
-            "Rigenera le credenziali (azione 'Rigenera credenziali MQTT') prima di scaricare il bundle.",
-        )
-        return HttpResponseNotAllowed(["GET"])
+        return back
 
     # 1) Genera telegraf.conf chiamando il management command
-    import sys
-
     out_io = io.StringIO()
-    sys_stdout_orig = sys.stdout
     try:
-        sys.stdout = out_io
-        call_command("export_telegraf_config", str(gateway.pk), "--interval", "30s")
-    finally:
-        sys.stdout = sys_stdout_orig
+        call_command("export_telegraf_config", str(gateway.pk), "--interval", "30s", stdout=out_io)
+    except CommandError as e:
+        messages.error(request, f"Impossibile generare telegraf.conf: {e}")
+        return back
     telegraf_conf = out_io.getvalue()
 
     # 2) Leggi ca.crt
@@ -171,10 +153,9 @@ def gateway_bundle_view(request, gateway_pk: int):
             request,
             f"CA certificate non trovato in {ca_path}. Genera prima i certificati con bootstrap.sh.",
         )
-        return HttpResponseNotAllowed(["GET"])
+        return back
     ca_crt = ca_path.read_bytes()
 
-    # 3) Componi telegraf.env
     server_endpoint = os.getenv("MQTT_PUBLIC_ENDPOINT", "")
     if not server_endpoint:
         messages.error(
@@ -182,20 +163,39 @@ def gateway_bundle_view(request, gateway_pk: int):
             "MQTT_PUBLIC_ENDPOINT non impostato. Configurane uno tipo "
             "ssl://10.8.0.1:8883 nelle variabili d'ambiente del web container.",
         )
-        return HttpResponseNotAllowed(["GET"])
+        return back
 
-    telegraf_env = (
-        f"# Generato per Gateway pk={gateway.pk} ({gateway.name})\n"
-        f"# Da copiare in /etc/default/telegraf sul gateway\n"
-        f"\n"
-        f"MQTT_SERVER={server_endpoint}\n"
-        f"MQTT_USERNAME={cred.username}\n"
-        f"MQTT_PASSWORD={cred.password_plaintext}\n"
-        f"MQTT_TLS_CA=/etc/telegraf/ca.crt\n"
-    )
+    # select_for_update: due download simultanei non ricevono entrambi la password
+    with transaction.atomic():
+        cred = GatewayMqttCredentials.objects.select_for_update().filter(gateway=gateway).first()
+        if not cred:
+            messages.error(
+                request,
+                f"Gateway {gateway.pk} non ha credenziali MQTT. Usa l'azione 'Rigenera credenziali MQTT'.",
+            )
+            return back
+        if cred.password_revealed or not cred.password_plaintext:
+            messages.error(
+                request,
+                "La password MQTT è già stata consegnata. "
+                "Rigenera le credenziali (azione 'Rigenera credenziali MQTT') prima di scaricare il bundle.",
+            )
+            return back
+        password = cred.password_plaintext
 
-    # 4) Componi README
-    readme = f"""# Bundle Telegraf per Gateway pk={gateway.pk} ({gateway.name})
+        # 3) Componi telegraf.env
+        telegraf_env = (
+            f"# Generato per Gateway pk={gateway.pk} ({gateway.name})\n"
+            f"# Da copiare in /etc/default/telegraf sul gateway\n"
+            f"\n"
+            f"MQTT_SERVER={server_endpoint}\n"
+            f"MQTT_USERNAME={cred.username}\n"
+            f"MQTT_PASSWORD={password}\n"
+            f"MQTT_TLS_CA=/etc/telegraf/ca.crt\n"
+        )
+
+        # 4) Componi README
+        readme = f"""# Bundle Telegraf per Gateway pk={gateway.pk} ({gateway.name})
 
 Generato il {cred.updated_at:%Y-%m-%d %H:%M:%S} per il deploy MQTT.
 
@@ -236,33 +236,33 @@ una volta perso questo bundle. Se hai bisogno di rigenerare un nuovo bundle
 dovrai prima rigenerare le credenziali dall'admin Django.
 """
 
-    # 5) Pacchettizza in .tar.gz in memoria
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-        for name, data in (
-            ("telegraf.conf", telegraf_conf.encode("utf-8")),
-            ("ca.crt", ca_crt),
-            ("telegraf.env", telegraf_env.encode("utf-8")),
-            ("README.md", readme.encode("utf-8")),
-        ):
-            ti = tarfile.TarInfo(name=name)
-            ti.size = len(data)
-            ti.mode = 0o600 if name == "telegraf.env" else 0o644
-            tf.addfile(ti, io.BytesIO(data))
+        # 5) Pacchettizza in .tar.gz in memoria
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+            for name, data in (
+                ("telegraf.conf", telegraf_conf.encode("utf-8")),
+                ("ca.crt", ca_crt),
+                ("telegraf.env", telegraf_env.encode("utf-8")),
+                ("README.md", readme.encode("utf-8")),
+            ):
+                ti = tarfile.TarInfo(name=name)
+                ti.size = len(data)
+                ti.mode = 0o600 if name == "telegraf.env" else 0o644
+                tf.addfile(ti, io.BytesIO(data))
 
-    # 6) Marca password come rivelata
-    cred.password_plaintext = ""
-    cred.password_revealed = True
-    cred.save(update_fields=["password_plaintext", "password_revealed", "updated_at"])
+        # 6) Marca password come rivelata (solo ora che il bundle è pronto)
+        cred.password_plaintext = ""
+        cred.password_revealed = True
+        cred.save(update_fields=["password_plaintext", "password_revealed", "updated_at"])
 
-    logger.info(
-        "Generated bundle for gateway pk=%s username=%s, marked password as revealed",
-        gateway.pk,
-        cred.username,
-    )
+        logger.info(
+            "Generated bundle for gateway pk=%s username=%s, marked password as revealed",
+            gateway.pk,
+            cred.username,
+        )
 
-    response = HttpResponse(buf.getvalue(), content_type="application/gzip")
-    response["Content-Disposition"] = (
-        f'attachment; filename="gateway-{gateway.pk}-{gateway.name}-bundle.tar.gz"'
-    )
-    return response
+        response = HttpResponse(buf.getvalue(), content_type="application/gzip")
+        response["Content-Disposition"] = (
+            f'attachment; filename="gateway-{gateway.pk}-{slugify(gateway.name) or "gw"}-bundle.tar.gz"'
+        )
+        return response

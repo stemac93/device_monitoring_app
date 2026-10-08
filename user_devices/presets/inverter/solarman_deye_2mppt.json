@@ -298,9 +298,9 @@
   ],
   "computed": [
     {
-      "name": "Power",
-      "unit": "W",
-      "formula": "Total_AC_Output_Power_Active",
+      "name": "Pout",
+      "unit": "kW",
+      "formula": "max(0, Total_AC_Output_Power_Active/1000)",
       "show_on_graph": true,
       "show_in_homepage": true
     }

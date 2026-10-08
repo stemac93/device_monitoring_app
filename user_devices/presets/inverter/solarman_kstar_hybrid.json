@@ -923,9 +923,9 @@
   ],
   "computed": [
     {
-      "name": "Power",
-      "unit": "W",
-      "formula": "L1_Power+L2_Power+L3_Power",
+      "name": "Pout",
+      "unit": "kW",
+      "formula": "max(0, L1_Power/1000 + L2_Power/1000 + L3_Power/1000)",
       "show_on_graph": true,
       "show_in_homepage": true
     }

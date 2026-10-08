@@ -10,7 +10,7 @@
     "commit": "ac1d88b83268beeb0511b8a1b7fc8e17deddc044",
     "file": "custom_components/solarman/inverter_definitions/afore_BNTxxxKTL-2mppt.yaml"
   },
-  "power_variable": "Power",
+  "power_variable": "Inverter Power",
   "notes": [],
   "blocks": [
     {
@@ -186,7 +186,7 @@
       "endianness": "big"
     },
     {
-      "name": "Power",
+      "name": "Inverter Power",
       "register_type": "input",
       "address": "0x0012",
       "unit": "W",
@@ -194,9 +194,7 @@
       "offset": 0,
       "bit_length": 32,
       "is_signed": false,
-      "endianness": "big",
-      "show_on_graph": true,
-      "show_in_homepage": true
+      "endianness": "big"
     },
     {
       "name": "Today Production",
@@ -232,5 +230,13 @@
       "endianness": "big"
     }
   ],
-  "computed": []
+  "computed": [
+    {
+      "name": "Pout",
+      "unit": "kW",
+      "formula": "max(0, Inverter_Power/1000)",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    }
+  ]
 }

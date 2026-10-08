@@ -227,13 +227,10 @@ class TestMapVariables(TestCase):
         
         result = map_variables(base_values, device)
         
-        # For invalid conversion factor, should default to 0
-        self.assertEqual(result["Invalid"]["value"], 0)
-        self.assertEqual(result["Invalid"]["unit"], "X")
-        
-        # For missing address, should default to 0
-        self.assertEqual(result["Missing"]["value"], 0)
-        self.assertEqual(result["Missing"]["unit"], "Y")
+        # Fattore non valido o registro mancante: la variabile non viene salvata
+        # (uno 0 sembrerebbe una lettura reale)
+        self.assertNotIn("Invalid", result)
+        self.assertNotIn("Missing", result)
 
     @patch('user_devices.functions.logger')
     @patch('user_devices.functions.ModbusMappingVariable.objects.filter')
@@ -395,20 +392,14 @@ class TestMapVariables(TestCase):
         self.assertEqual(result["Var64S"]["unit"], "S")
 
 class TestComputeVariables(TestCase):
-    @patch('user_devices.functions.sympify')
     @patch('user_devices.functions.ComputedVariable.objects.filter')
-    def test_compute_variables_success(self, mock_filter, mock_sympify):
+    def test_compute_variables_success(self, mock_filter):
         """Test successful computation of derived variables"""
         # Setup mapped values
         mapped_values = {
             "Voltage": {"value": 230.0, "unit": "V"},
             "Current": {"value": 2.0, "unit": "A"}
         }
-
-        # Setup mock for sympify result
-        mock_expr = Mock()
-        mock_expr.evalf.return_value = 460.0
-        mock_sympify.return_value = mock_expr
 
         # Setup mock for ComputedVariable
         power_var = Mock()
@@ -456,226 +447,134 @@ class TestComputeVariables(TestCase):
         except Exception as e:
             print(e)
         print(f"Result: {result}")
-        # Should default to 0 when computation fails
-        self.assertEqual(result["InvalidPower"]["value"], 0)
-        self.assertEqual(result["InvalidPower"]["unit"], "W")
+        # Formula non calcolabile: nessun valore (non uno 0 finto)
+        self.assertNotIn("InvalidPower", result)
 
 class TestComputeEnergy(TestCase):
+    """compute_energy integra la potenza in kWh partendo dai contatori
+    dell'ultimo EnergyData (i DeviceData non contengono le chiavi Energy_*)."""
+
+    COUNTERS = {
+        'Energy_produced': {'value': 1.0, 'unit': 'kWh'},
+        'Energy_consumed': {'value': 6.0, 'unit': 'kWh'},
+        'Energy_daily_produced': {'value': 0.2, 'unit': 'kWh'},
+        'Energy_daily_consumed': {'value': 0.3, 'unit': 'kWh'},
+        'Energy_weekly_produced': {'value': 0.4, 'unit': 'kWh'},
+        'Energy_weekly_consumed': {'value': 0.5, 'unit': 'kWh'},
+        'Energy_monthly_produced': {'value': 0.6, 'unit': 'kWh'},
+        'Energy_monthly_consumed': {'value': 0.7, 'unit': 'kWh'},
+    }
+
+    def _querysets(self, previous_power, seconds_ago=300, power_name='P', energy_ts=None):
+        """DeviceData precedente (potenza, `seconds_ago` secondi fa) ed EnergyData precedente."""
+        previous_data = Mock()
+        previous_data.timestamp = datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)
+        previous_data.data = {power_name: {'value': previous_power, 'unit': 'W'}}
+        device_data = Mock()
+        device_data.order_by.return_value.first.return_value = previous_data
+
+        previous_energy = Mock()
+        previous_energy.timestamp = energy_ts or datetime.now(timezone.utc)
+        previous_energy.data = dict(self.COUNTERS)
+        energy_data = Mock()
+        energy_data.order_by.return_value.first.return_value = previous_energy
+        return device_data, energy_data
+
     @patch('user_devices.functions.logger')
     def test_compute_energy_with_previous_data(self, mock_logger):
-        """Test energy computation with previous data available"""
-        # Setup device data queryset
-        device_data = Mock()
-        device_data.protocol = "modbus"
-        device_data.register_type = "input"
-        device_data.start_address = "0x0280"
-        device_data.word_count = 1
-        device_data.slave_id = 1
+        """2 kW costanti per 5 minuti -> +0.1667 kWh consumati"""
+        device_data, energy_data = self._querysets(previous_power=2000.0)
+        result = compute_energy({'P': {'value': 2000.0, 'unit': 'W'}}, device_data, energy_data)
 
-        # Mock energy data as a json with Energy, Energy_produced, Energy_consumed, Energy_daily_produced, Energy_daily_consumed, Energy_weekly_produced, Energy_weekly_consumed, Energy_monthly_produced, Energy_monthly_consumed
-        energy_data = Mock()
-        energy_data.data = {
-            'Energy': {'value': 5000.0, 'unit': 'J'},
-            'Energy_produced': {'value': 1000.0, 'unit': 'J'},
-            'Energy_consumed': {'value': 6000.0, 'unit': 'J'},
-            'Energy_daily_produced': {'value': 2000.0, 'unit': 'J'},
-            'Energy_daily_consumed': {'value': 3000.0, 'unit': 'J'},
-            'Energy_weekly_produced': {'value': 4000.0, 'unit': 'J'},
-            'Energy_weekly_consumed': {'value': 5000.0, 'unit': 'J'},
-            'Energy_monthly_produced': {'value': 6000.0, 'unit': 'J'},
-            'Energy_monthly_consumed': {'value': 7000.0, 'unit': 'J'}
-        }
+        for key in ('Energy', 'Energy_produced', 'Energy_consumed',
+                    'Energy_daily_produced', 'Energy_daily_consumed',
+                    'Energy_weekly_produced', 'Energy_weekly_consumed',
+                    'Energy_monthly_produced', 'Energy_monthly_consumed'):
+            self.assertIn(key, result)
+            self.assertEqual(result[key]['unit'], 'kWh')
 
-        # Mock previous data with Pin, Pout
-        previous_data = Mock()
-        previous_data.timestamp = datetime.now(timezone.utc) - timedelta(minutes=5)
-        previous_data.data = {
-            'Pin': {'value': 1000.0, 'unit': 'W'},
-            'Pout': {'value': 2000.0, 'unit': 'W'}
-        }
-
-        # Mock queryset methods
-        device_data.order_by.return_value.first.return_value = previous_data
-        
-        # Setup filter and aggregate mocks for period data
-        mock_daily_filter = Mock()
-        mock_daily_filter.aggregate.return_value = {'total': 2000.0}
-        
-        mock_weekly_filter = Mock()
-        mock_weekly_filter.aggregate.return_value = {'total': 5000.0}
-        
-        mock_monthly_filter = Mock()
-        mock_monthly_filter.aggregate.return_value = {'total': 10000.0}
-        
-        # Return different mocks for different filter calls
-        def side_effect_filter(timestamp__gte):
-            if timestamp__gte > (datetime.now(timezone.utc) - timedelta(days=2)):
-                return mock_daily_filter
-            elif timestamp__gte > (datetime.now(timezone.utc) - timedelta(days=8)):
-                return mock_weekly_filter
-            else:
-                return mock_monthly_filter
-                
-        device_data.filter.side_effect = side_effect_filter
-        
-        # Current values with positive power (consumption)
-        variables = {
-            'P': {'value': 2000.0, 'unit': 'W'}
-        }
-        
-        # Execute function
-        result = compute_energy(variables, device_data, energy_data)
-
-        print(f"Result: {result}")
-
-        # Verify results
-        # Check that all expected keys exist
-        self.assertIn('Energy', result)
-        self.assertIn('Energy_produced', result)
-        self.assertIn('Energy_consumed', result)
-        self.assertIn('Energy_daily_produced', result)
-        self.assertIn('Energy_daily_consumed', result)
-        self.assertIn('Energy_weekly_produced', result)
-        self.assertIn('Energy_weekly_consumed', result)
-        self.assertIn('Energy_monthly_produced', result)
-        self.assertIn('Energy_monthly_consumed', result)
-        
-        # Check units
-        self.assertEqual(result['Energy']['unit'], 'kWh')
-        self.assertEqual(result['Energy_produced']['unit'], 'kWh')
-        
-        # Check that conversion factor to kWh was applied
-        conv_factor_to_kwh = 3.6 * 10**6
-        
-        # Since we're using positive power (2000W), energy consumed should increase
-        self.assertTrue(result['Energy_consumed']['value'] > previous_data.data['Energy_consumed']['value'] / conv_factor_to_kwh)
-        
-        # Energy produced should remain the same
-        self.assertAlmostEqual(result['Energy_produced']['value'], 
-        previous_data.data['Energy_produced']['value'] / conv_factor_to_kwh)
+        increment = 2.0 * 300 / 3600
+        self.assertAlmostEqual(result['Energy_consumed']['value'], 6.0 + increment, places=2)
+        self.assertAlmostEqual(result['Energy_daily_consumed']['value'], 0.3 + increment, places=2)
+        self.assertAlmostEqual(result['Energy_weekly_consumed']['value'], 0.5 + increment, places=2)
+        self.assertAlmostEqual(result['Energy_monthly_consumed']['value'], 0.7 + increment, places=2)
+        # Potenza positiva: il prodotto non cambia
+        self.assertAlmostEqual(result['Energy_produced']['value'], 1.0)
+        self.assertAlmostEqual(result['Energy']['value'],
+                               result['Energy_produced']['value'] + result['Energy_consumed']['value'], places=3)
 
     @patch('user_devices.functions.logger')
     def test_compute_energy_with_negative_power(self, mock_logger):
-        """Test energy computation with negative power (production)"""
-        # Setup device data queryset
-        device_data = Mock()
-        
-        # Mock previous data
-        previous_data = Mock()
-        previous_data.timestamp = datetime.now(timezone.utc) - timedelta(minutes=5)
-        previous_data.data = {
-            'P': {'value': -500.0, 'unit': 'W'},  # Negative power
-            'Energy': {'value': 5000.0, 'unit': 'J'},
-            'Energy_produced': {'value': 3000.0, 'unit': 'J'},
-            'Energy_consumed': {'value': 2000.0, 'unit': 'J'}
-        }
-        
-        # Mock queryset methods
-        device_data.order_by.return_value.first.return_value = previous_data
-        
-        # Setup filter and aggregate mocks
-        mock_filter = Mock()
-        mock_filter.aggregate.return_value = {'total': 1000.0}
-        device_data.filter.return_value = mock_filter
-        
-        # Current values with negative power (production)
-        variables = {
-            'P': {'value': -1000.0, 'unit': 'W'}
-        }
-        
-        # Execute function
-        result = compute_energy(variables, device_data)
-        
-        # Verify results
-        # Since we're using negative power (-1000W), energy produced should increase
-        conv_factor_to_kwh = 3.6 * 10**6
-        self.assertTrue(result['Energy_produced']['value'] > previous_data.data['Energy_produced']['value'] / conv_factor_to_kwh)
-        
-        # Energy consumed should remain the same
-        self.assertAlmostEqual(result['Energy_consumed']['value'], 
-                              previous_data.data['Energy_consumed']['value'] / conv_factor_to_kwh)
+        """Potenza negativa = produzione"""
+        device_data, energy_data = self._querysets(previous_power=-500.0)
+        result = compute_energy({'P': {'value': -1000.0, 'unit': 'W'}}, device_data, energy_data)
+
+        increment = 0.75 * 300 / 3600
+        self.assertAlmostEqual(result['Energy_produced']['value'], 1.0 + increment, places=3)
+        self.assertAlmostEqual(result['Energy_daily_produced']['value'], 0.2 + increment, places=3)
+        self.assertAlmostEqual(result['Energy_consumed']['value'], 6.0)
 
     @patch('user_devices.functions.logger')
     def test_compute_energy_with_alternative_power_name(self, mock_logger):
-        """Test energy computation with alternative power variable name"""
-        # Setup device data queryset
-        device_data = Mock()
-        
-        # Mock previous data with "Power" instead of "P"
-        previous_data = Mock()
-        previous_data.timestamp = datetime.now(timezone.utc) - timedelta(minutes=5)
-        previous_data.data = {
-            'Power': {'value': 1000.0, 'unit': 'W'},
-            'Energy': {'value': 5000.0, 'unit': 'J'},
-            'Energy_produced': {'value': 1000.0, 'unit': 'J'},
-            'Energy_consumed': {'value': 6000.0, 'unit': 'J'}
-        }
-        
-        # Mock queryset methods
-        device_data.order_by.return_value.first.return_value = previous_data
-        
-        # Setup filter and aggregate mocks
-        mock_filter = Mock()
-        mock_filter.aggregate.return_value = {'total': 1000.0}
-        device_data.filter.return_value = mock_filter
-        
-        # Current values with "Power" instead of "P"
-        variables = {
-            'Power': {'value': 2000.0, 'unit': 'W'}
-        }
-        
-        # Execute function
-        result = compute_energy(variables, device_data)
-        
-        # Verify results - function should recognize "Power" as a valid power variable name
+        """'Power' è riconosciuto come variabile di potenza"""
+        device_data, energy_data = self._querysets(previous_power=1000.0, power_name='Power')
+        result = compute_energy({'Power': {'value': 2000.0, 'unit': 'W'}}, device_data, energy_data)
+
         self.assertIn('Energy', result)
         self.assertIn('Energy_produced', result)
         self.assertIn('Energy_consumed', result)
 
     @patch('user_devices.functions.logger')
+    def test_compute_energy_kw_unit(self, mock_logger):
+        """Con potenza in kW non si divide per 1000"""
+        device_data, energy_data = self._querysets(previous_power=2.0)
+        device_data.order_by.return_value.first.return_value.data = {'P': {'value': 2.0, 'unit': 'kW'}}
+        result = compute_energy({'P': {'value': 2.0, 'unit': 'kW'}}, device_data, energy_data)
+
+        self.assertAlmostEqual(result['Energy_consumed']['value'], 6.0 + 2.0 * 300 / 3600, places=3)
+
+    @patch('user_devices.functions.logger')
+    def test_compute_energy_skips_long_gap(self, mock_logger):
+        """Dopo un'interruzione lunga non si integra (niente picchi)"""
+        device_data, energy_data = self._querysets(previous_power=2000.0, seconds_ago=2 * 24 * 3600)
+        result = compute_energy({'P': {'value': 2000.0, 'unit': 'W'}}, device_data, energy_data)
+
+        self.assertAlmostEqual(result['Energy_consumed']['value'], 6.0)
+
+    @patch('user_devices.functions.logger')
+    def test_compute_energy_daily_counter_resets(self, mock_logger):
+        """Se l'ultimo EnergyData è di ieri il giornaliero riparte da 0, il cumulato no"""
+        from user_devices.helper_funcs import local_period_starts
+        start_of_day = local_period_starts()[0]
+        device_data, energy_data = self._querysets(
+            previous_power=2000.0, energy_ts=start_of_day - timedelta(minutes=1))
+        result = compute_energy({'P': {'value': 2000.0, 'unit': 'W'}}, device_data, energy_data)
+
+        increment = 2.0 * 300 / 3600
+        self.assertAlmostEqual(result['Energy_daily_consumed']['value'], increment, places=3)
+        self.assertAlmostEqual(result['Energy_consumed']['value'], 6.0 + increment, places=3)
+
+    @patch('user_devices.functions.logger')
     def test_compute_energy_without_previous_data(self, mock_logger):
-        """Test energy computation without previous data"""
-        # Mock empty device data
+        """Prima lettura: niente da integrare -> None"""
         device_data = Mock()
         device_data.order_by.return_value.first.return_value = None
-        
-        variables = {'P': {'value': 1000.0, 'unit': 'W'}}
-        
-        result = compute_energy(variables, device_data)
-        
-        # Should initialize with zeros
-        self.assertEqual(result['Energy']['value'], 0.0)
-        self.assertEqual(result['Energy_produced']['value'], 0.0)
-        self.assertEqual(result['Energy_consumed']['value'], 0.0)
-        self.assertEqual(result['Energy_daily_produced']['value'], 0.0)
-        self.assertEqual(result['Energy_daily_consumed']['value'], 0.0)
-        self.assertEqual(result['Energy_weekly_produced']['value'], 0.0)
-        self.assertEqual(result['Energy_weekly_consumed']['value'], 0.0)
-        self.assertEqual(result['Energy_monthly_produced']['value'], 0.0)
-        self.assertEqual(result['Energy_monthly_consumed']['value'], 0.0)
+        energy_data = Mock()
+        energy_data.order_by.return_value.first.return_value = None
+
+        result = compute_energy({'P': {'value': 1000.0, 'unit': 'W'}}, device_data, energy_data)
+
+        self.assertIsNone(result)
 
     @patch('user_devices.functions.logger')
     def test_compute_energy_exception_handling(self, mock_logger):
-        """Test exception handling during energy computation"""
-        # Mock device data that raises exception
+        """Un errore viene loggato e la funzione ritorna None"""
         device_data = Mock()
         device_data.order_by.side_effect = Exception("Test exception")
-        
-        variables = {'P': {'value': 1000.0, 'unit': 'W'}}
-        
-        result = compute_energy(variables, device_data)
-        
-        # Should return default values on exception
-        # Should initialize with zeros
-        self.assertEqual(result['Energy']['value'], 0.0)
-        self.assertEqual(result['Energy_produced']['value'], 0.0)
-        self.assertEqual(result['Energy_consumed']['value'], 0.0)
-        self.assertEqual(result['Energy_daily_produced']['value'], 0.0)
-        self.assertEqual(result['Energy_daily_consumed']['value'], 0.0)
-        self.assertEqual(result['Energy_weekly_produced']['value'], 0.0)
-        self.assertEqual(result['Energy_weekly_consumed']['value'], 0.0)
-        self.assertEqual(result['Energy_monthly_produced']['value'], 0.0)
-        self.assertEqual(result['Energy_monthly_consumed']['value'], 0.0)
+
+        result = compute_energy({'P': {'value': 1000.0, 'unit': 'W'}}, device_data, Mock())
+
+        self.assertIsNone(result)
         mock_logger.error.assert_called()
 
 class TestDeviceAvailability(TestCase):
@@ -991,6 +890,8 @@ class TestGetQuarterHourWindow(TestCase):
         self.assertEqual(start_time, expected_start)
         self.assertEqual(end_time, expected_end)
 
+# I test usano timestamp fissi: il filtro sull'età dei dati è disattivato
+@patch('user_devices.functions.PLANT_DATA_MAX_AGE', None)
 class TestComputePlantProduction(TestCase):
     @patch('user_devices.functions.DeviceData')
     def test_compute_plant_production_modbus_quarter_hour_averaging(self, mock_device_data):
@@ -1010,19 +911,19 @@ class TestComputePlantProduction(TestCase):
         latest_data = Mock()
         latest_data.timestamp = datetime(2024, 6, 15, 15, 17, 30, tzinfo=timezone.utc)
         latest_data.data = {
-            'Pout': {'value': 1000.0, 'unit': 'W'},
+            'Pout': {'value': 1000.0, 'unit': 'kW'},
             'Voltage': {'value': 230.0, 'unit': 'V'}
         }
         
         # Mock quarter-hour data (15:00 to 15:15)
         quarter_hour_data_1 = Mock()
-        quarter_hour_data_1.data = {'Pout': {'value': 800.0, 'unit': 'W'}}
+        quarter_hour_data_1.data = {'Pout': {'value': 800.0, 'unit': 'kW'}}
         
         quarter_hour_data_2 = Mock()
-        quarter_hour_data_2.data = {'Pout': {'value': 900.0, 'unit': 'W'}}
+        quarter_hour_data_2.data = {'Pout': {'value': 900.0, 'unit': 'kW'}}
         
         quarter_hour_data_3 = Mock()
-        quarter_hour_data_3.data = {'Pout': {'value': 1100.0, 'unit': 'W'}}
+        quarter_hour_data_3.data = {'Pout': {'value': 1100.0, 'unit': 'kW'}}
         
         # Mock DeviceData queryset - need to handle different filter calls
         def mock_filter_side_effect(**kwargs):
@@ -1060,7 +961,7 @@ class TestComputePlantProduction(TestCase):
         latest_data = Mock()
         latest_data.timestamp = datetime(2024, 6, 15, 15, 17, 30, tzinfo=timezone.utc)
         latest_data.data = {
-            'Pout': {'value': 1000.0, 'unit': 'W'},
+            'Pout': {'value': 1000.0, 'unit': 'kW'},
             'Voltage': {'value': 230.0, 'unit': 'V'}
         }
         
@@ -1093,7 +994,7 @@ class TestComputePlantProduction(TestCase):
         latest_data = Mock()
         latest_data.timestamp = datetime(2024, 6, 15, 15, 17, 30, tzinfo=timezone.utc)
         latest_data.data = {
-            'Pout': {'value': 1000.0, 'unit': 'W'}
+            'Pout': {'value': 1000.0, 'unit': 'kW'}
         }
         
         # Mock DeviceData queryset - no quarter-hour data
@@ -1131,21 +1032,21 @@ class TestComputePlantProduction(TestCase):
         latest_data = Mock()
         latest_data.timestamp = datetime(2024, 6, 15, 15, 17, 30, tzinfo=timezone.utc)
         latest_data.data = {
-            'Pout': {'value': 1000.0, 'unit': 'W'},
-            'Power Production': {'value': 500.0, 'unit': 'W'}
+            'Pout': {'value': 1000.0, 'unit': 'kW'},
+            'Power_Production': {'value': 500.0, 'unit': 'kW'}
         }
         
         # Mock quarter-hour data
         quarter_hour_data_1 = Mock()
         quarter_hour_data_1.data = {
-            'Pout': {'value': 800.0, 'unit': 'W'},
-            'Power Production': {'value': 400.0, 'unit': 'W'}
+            'Pout': {'value': 800.0, 'unit': 'kW'},
+            'Power_Production': {'value': 400.0, 'unit': 'kW'}
         }
         
         quarter_hour_data_2 = Mock()
         quarter_hour_data_2.data = {
-            'Pout': {'value': 1200.0, 'unit': 'W'},
-            'Power Production': {'value': 600.0, 'unit': 'W'}
+            'Pout': {'value': 1200.0, 'unit': 'kW'},
+            'Power_Production': {'value': 600.0, 'unit': 'kW'}
         }
         
         # Mock DeviceData queryset - need to handle different filter calls
@@ -1220,18 +1121,18 @@ class TestComputePlantProduction(TestCase):
         latest_data = Mock()
         latest_data.timestamp = datetime(2024, 6, 15, 15, 17, 30, tzinfo=timezone.utc)
         latest_data.data = {
-            'Pout': {'value': 1000.0, 'unit': 'W'}
+            'Pout': {'value': 1000.0, 'unit': 'kW'}
         }
         
         # Mock quarter-hour data with invalid values
         quarter_hour_data_1 = Mock()
-        quarter_hour_data_1.data = {'Pout': {'value': 800.0, 'unit': 'W'}}
+        quarter_hour_data_1.data = {'Pout': {'value': 800.0, 'unit': 'kW'}}
         
         quarter_hour_data_2 = Mock()
         quarter_hour_data_2.data = {'Pout': 'invalid_value'}  # Invalid format
         
         quarter_hour_data_3 = Mock()
-        quarter_hour_data_3.data = {'Pout': {'value': 1200.0, 'unit': 'W'}}
+        quarter_hour_data_3.data = {'Pout': {'value': 1200.0, 'unit': 'kW'}}
         
         # Mock DeviceData queryset - need to handle different filter calls
         def mock_filter_side_effect(**kwargs):
@@ -1298,15 +1199,15 @@ class TestComputePlantProduction(TestCase):
         # Mock latest device data for both devices
         modbus_latest_data = Mock()
         modbus_latest_data.timestamp = datetime(2024, 6, 15, 15, 17, 30, tzinfo=timezone.utc)
-        modbus_latest_data.data = {'Pout': {'value': 1000.0, 'unit': 'W'}}
+        modbus_latest_data.data = {'Pout': {'value': 1000.0, 'unit': 'kW'}}
         
         dlms_latest_data = Mock()
         dlms_latest_data.timestamp = datetime(2024, 6, 15, 15, 17, 30, tzinfo=timezone.utc)
-        dlms_latest_data.data = {'Pout': {'value': 500.0, 'unit': 'W'}}
+        dlms_latest_data.data = {'Pout': {'value': 500.0, 'unit': 'kW'}}
         
         # Mock quarter-hour data for Modbus device
         quarter_hour_data = Mock()
-        quarter_hour_data.data = {'Pout': {'value': 800.0, 'unit': 'W'}}
+        quarter_hour_data.data = {'Pout': {'value': 800.0, 'unit': 'kW'}}
         
         # Mock DeviceData queryset with side_effect for different devices and queries
         def mock_filter_side_effect(device_name=None, **kwargs):

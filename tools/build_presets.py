@@ -27,8 +27,9 @@ scrivibili (number/select/switch/time/button), stringhe, enum/lookup, bit e
 maschere, valori calcolati da funzioni Python e sensori composti.
 Se un valore a 32 bit ha i due registri non consecutivi, diventa due variabili
 a 16 bit (" lo"/" hi") più una variabile calcolata che le somma.
-Ogni preset ha inoltre una variabile calcolata "Power" (alias della potenza
-AC di uscita) usata da compute_energy per l'integrale di energia.
+Ogni preset ha inoltre una variabile calcolata "Pout" in kW (alias della potenza
+AC di uscita): compute_energy la integra come energia prodotta e
+compute_plant_production la somma nella produzione dell'impianto.
 """
 
 import argparse
@@ -182,29 +183,47 @@ def build_blocks(variables, min_span=25, max_size=MODBUS_MAX_READ, newblock_addr
     ]
 
 
+# Nomi che compute_energy riconosce come potenza (functions.POWER_*_NAMES,
+# già sanitizzati): "Power"/"P" sono potenza con segno (negativa = prodotta),
+# quindi una variabile sorgente con questi nomi falserebbe l'energia
+RESERVED_POWER_NAMES = {
+    "P", "Power", "Potenza", "Pout", "Power_Production", "Potenza_in_uscita",
+    "Pin", "Power_Consumption", "Potenza_in_entrata",
+}
+
+
+def rename_reserved(variables, computed):
+    """Aggiunge il prefisso "Inverter " alle variabili con nomi riservati."""
+    names = {v["name"] for v in variables + computed}
+    for v in variables + computed:
+        if sanitized(v["name"]) in RESERVED_POWER_NAMES:
+            new = f"Inverter {v['name']}"
+            while new in names:
+                new += " 2"
+            names.add(new)
+            v["name"] = new
+
+
 def add_power_alias(variables, computed):
     """
-    compute_energy integra la variabile "Power": se il preset non ce l'ha,
-    aggiunge una variabile calcolata "Power" in W (alias della potenza AC di
-    uscita, o somma delle fasi, o in mancanza potenza fotovoltaica).
+    Aggiunge la variabile calcolata "Pout" in kW: alias della potenza AC di
+    uscita (o somma delle fasi, o in mancanza potenza fotovoltaica), mai
+    negativa (un ibrido che carica da rete non produce).
     Ritorna la sorgente scelta.
     """
-    for v in variables + computed:
-        if v["name"] in ("Power", "P"):
-            v["show_on_graph"] = v["show_in_homepage"] = True
-            return v["name"]
+    rename_reserved(variables, computed)
     by_lower = {}
     for v in variables + computed:
         if v.get("unit") in ("W", "kW"):
             by_lower.setdefault(v["name"].lower(), v)
 
     def term(v):
-        return sanitized(v["name"]) + ("*1000" if v["unit"] == "kW" else "")
+        return sanitized(v["name"]) + ("/1000" if v["unit"] == "W" else "")
 
     def alias(sources, label):
         computed.append({
-            # niente spazi: compute_variables li trasforma in "_"
-            "name": "Power", "unit": "W", "formula": "+".join(term(v) for v in sources),
+            "name": "Pout", "unit": "kW",
+            "formula": f"max(0, {' + '.join(term(v) for v in sources)})",
             "show_on_graph": True, "show_in_homepage": True,
         })
         return label

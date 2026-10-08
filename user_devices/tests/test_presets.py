@@ -5,17 +5,17 @@ Lanciare con:
     docker compose exec web python manage.py test user_devices.tests.test_presets
 """
 
-import re
 from io import StringIO
 from unittest.mock import Mock, patch
 
 from django.core.management import call_command
 from django.test import TestCase
-from sympy import sympify
 
 from user_devices.forms import DeviceForm
-from user_devices.functions import compute_variables, map_variables, read_modbus_registers
-from user_devices.helper_funcs import sanitize_variable_name
+from user_devices.functions import (
+    POWER_CONS_NAMES, POWER_NAMES, POWER_PROD_NAMES, compute_variables, map_variables, read_modbus_registers,
+)
+from user_devices.helper_funcs import evaluate_formula, sanitize_variable_name
 from user_devices.models import ComputedVariable, Device, Gateway, ModbusMappingVariable, ModbusReadBlock
 from user_devices.presets import apply_preset, load_presets, preset_choices
 
@@ -47,12 +47,14 @@ class PresetFilesTests(TestCase):
                     for addr in range(start, start + var["bit_length"] // 16):
                         self.assertIn((var["register_type"], addr), covered, var["name"])
 
-                known = {sanitize_variable_name(n) for n in names}
+                # Ogni formula deve essere calcolabile con le variabili del preset
+                known = {sanitize_variable_name(n): 1.0 for n in names}
                 for comp in preset["computed"]:
-                    formula = sanitize_variable_name(comp["formula"])
-                    for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", formula):
-                        self.assertIn(token, known, comp["formula"])
-                    sympify(formula)
+                    evaluate_formula(comp["formula"], known)
+
+                # L'alias Pout (kW) è l'unico nome che compute_energy riconosce
+                reserved = set(POWER_NAMES + POWER_PROD_NAMES + POWER_CONS_NAMES) - {"Pout"}
+                self.assertFalse(reserved & {sanitize_variable_name(n) for n in names})
 
     def test_choices_grouped_with_empty_option(self):
         choices = preset_choices()
@@ -85,7 +87,7 @@ FAKE_PRESET = {
     ],
     "computed": [
         {"name": "Energy", "unit": "kWh", "formula": "Energy_lo+Energy_hi"},
-        {"name": "Power", "unit": "W", "formula": "Output_Power", "show_on_graph": True, "show_in_homepage": True},
+        {"name": "Pout", "unit": "kW", "formula": "max(0, Output_Power/1000)", "show_on_graph": True, "show_in_homepage": True},
     ],
 }
 
@@ -108,7 +110,7 @@ class ApplyPresetTests(TestCase):
         self.assertEqual(self.device.preset, FAKE_PRESET["id"])
         self.assertEqual(ModbusReadBlock.objects.filter(device=self.device).count(), 3)
         self.assertEqual(ModbusMappingVariable.objects.filter(device=self.device).count(), 5)
-        power = ComputedVariable.objects.get(device=self.device, var_name="Power")
+        power = ComputedVariable.objects.get(device=self.device, var_name="Pout")
         self.assertTrue(power.show_on_graph)
 
     def test_values_through_pipeline(self):
@@ -126,13 +128,19 @@ class ApplyPresetTests(TestCase):
         self.assertEqual(mapped["Voltage"]["value"], 230.1)
         self.assertEqual(mapped["Temperature"]["value"], 25.0)
         self.assertEqual(mapped["Output_Power"]["value"], -1000.0)
-        self.assertEqual(computed["Power"]["value"], -1000.0)
+        self.assertEqual(computed["Pout"]["value"], 0)  # mai negativa
         self.assertEqual(computed["Energy"]["value"], 6554.6)  # (10 + 65536) * 0.1
+
+    def test_pout_in_kw(self):
+        """Pout è la potenza prodotta in kW: compute_energy la integra come produzione."""
+        mapped = map_variables({("holding", 0x100): 2500, ("holding", 0x101): 0}, self.device)
+        computed = compute_variables(mapped, self.device)
+        self.assertEqual(computed["Pout"], {"value": 2.5, "unit": "kW"})
 
     def test_same_address_different_register_type(self):
         """input 0x10 e holding 0x10 sono registri diversi."""
         mapped = map_variables({("holding", 0x10): 999}, self.device)
-        self.assertEqual(mapped["Voltage"]["value"], 0)
+        self.assertNotIn("Voltage", mapped)  # registro mancante: variabile saltata
 
     def test_read_modbus_registers_reads_every_block(self):
         client = Mock()

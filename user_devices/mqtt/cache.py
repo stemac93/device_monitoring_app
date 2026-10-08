@@ -42,6 +42,7 @@ RAW_TTL_SECONDS = 15 * 60  # 15 minuti
 RAW_FRESHNESS_SECONDS = 5 * 60
 
 _KEY_PREFIX = "mqtt:rawdata:"
+_PROCESSED_PREFIX = "mqtt:processed:"
 
 
 def _key(device_pk: int) -> str:
@@ -77,13 +78,9 @@ def put_raw(device_pk: int, base_values: dict, ts: Optional[float] = None) -> No
     _redis.set(_key(device_pk), json.dumps(payload), ex=RAW_TTL_SECONDS)
 
 
-def get_raw(device_pk: int, max_age_seconds: Optional[int] = None) -> Optional[dict]:
-    """Recupera l'ultimo snapshot grezzo per un device.
-
-    Ritorna None se assente o se nessun registro è abbastanza recente.
-    Ritorna dict {(register_type, int_address): int_value} altrimenti,
-    con i soli registri più recenti della soglia di freschezza.
-    """
+def _get_fresh(device_pk: int, max_age_seconds: Optional[int] = None):
+    """Ritorna (ts_snapshot, {(register_type, addr): valore}) con i soli registri
+    più recenti della soglia di freschezza, oppure None."""
     raw = _redis.get(_key(device_pk))
     if not raw:
         return None
@@ -99,7 +96,40 @@ def get_raw(device_pk: int, max_age_seconds: Optional[int] = None) -> Optional[d
         for k, v in payload.get("values", {}).items()
         if now - float(v[1]) <= age_limit
     }
-    return fresh or None
+    if not fresh:
+        return None
+    return payload.get("ts"), fresh
+
+
+def get_raw(device_pk: int, max_age_seconds: Optional[int] = None) -> Optional[dict]:
+    """Recupera l'ultimo snapshot grezzo per un device.
+
+    Ritorna None se assente o se nessun registro è abbastanza recente.
+    Ritorna dict {(register_type, int_address): int_value} altrimenti,
+    con i soli registri più recenti della soglia di freschezza.
+    """
+    fresh = _get_fresh(device_pk, max_age_seconds)
+    return fresh[1] if fresh is not None else None
+
+
+def claim_raw(device_pk: int) -> Optional[dict]:
+    """Come get_raw, ma ogni snapshot viene restituito UNA sola volta.
+
+    Se il gateway smette di pubblicare (o Telegraf è più lento del beat) il task
+    ritroverebbe lo stesso snapshot a ogni ciclo e lo salverebbe più volte,
+    gonfiando disponibilità ed energia. Il ts dell'ultimo snapshot elaborato
+    è memorizzato in Redis.
+    """
+    fresh = _get_fresh(device_pk)
+    if fresh is None:
+        return None
+    ts, values = fresh
+    ts = str(ts)
+    processed_key = f"{_PROCESSED_PREFIX}{device_pk}"
+    if _redis.get(processed_key) == ts:
+        return None
+    _redis.set(processed_key, ts, ex=RAW_TTL_SECONDS)
+    return values
 
 
 def get_raw_age(device_pk: int) -> Optional[float]:

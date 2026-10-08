@@ -10,7 +10,7 @@
     "commit": "ac1d88b83268beeb0511b8a1b7fc8e17deddc044",
     "file": "custom_components/solarman/inverter_definitions/deye_string.yaml"
   },
-  "power_variable": "Power",
+  "power_variable": "Inverter Power",
   "notes": [],
   "blocks": [
     {
@@ -345,7 +345,7 @@
       "endianness": "little"
     },
     {
-      "name": "Power",
+      "name": "Inverter Power",
       "register_type": "holding",
       "address": "0x0056",
       "unit": "W",
@@ -353,9 +353,7 @@
       "offset": 0,
       "bit_length": 32,
       "is_signed": false,
-      "endianness": "little",
-      "show_on_graph": true,
-      "show_in_homepage": true
+      "endianness": "little"
     },
     {
       "name": "Output Reactive Power",
@@ -413,5 +411,13 @@
       "endianness": "little"
     }
   ],
-  "computed": []
+  "computed": [
+    {
+      "name": "Pout",
+      "unit": "kW",
+      "formula": "max(0, Inverter_Power/1000)",
+      "show_on_graph": true,
+      "show_in_homepage": true
+    }
+  ]
 }

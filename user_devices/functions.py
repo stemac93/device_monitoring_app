@@ -3,7 +3,6 @@ import time
 import json
 import requests
 import math
-from sympy import sympify
 from datetime import datetime, timezone, timedelta
 from pymodbus.client import ModbusTcpClient
 from .models import ModbusMappingVariable, ComputedVariable, DeviceData, EnergyData, GatewayData
@@ -11,13 +10,34 @@ from decimal import Decimal
 from django.db.models import Sum
 from django.db.models.expressions import RawSQL
 from fractions import Fraction
-from .helper_funcs import sanitize_variable_name, convert_value, convert_to_local_time, round_to_2_decimals
+from .helper_funcs import sanitize_variable_name, convert_value, convert_to_local_time, round_to_2_decimals, local_period_starts, evaluate_formula
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
 MAX_WORDS_PER_READ = 12
 TIMEOUT = 5                 # Timeout per la connessione
+# Oltre questo intervallo tra due letture l'energia non viene integrata
+MAX_INTEGRATION_GAP_SECONDS = 10 * 60
+
+# Nomi di variabile riconosciuti, nella forma sanitizzata con cui sono salvati
+# nei dati (map_variables / read_dlms_values applicano sanitize_variable_name)
+POWER_NAMES = [sanitize_variable_name(n) for n in ('P', 'Power', 'Potenza')]
+POWER_PROD_NAMES = [sanitize_variable_name(n) for n in ('Pout', 'Power Production', 'Potenza in uscita')]
+POWER_CONS_NAMES = [sanitize_variable_name(n) for n in ('Pin', 'Power Consumption', 'Potenza in entrata')]
+MEAN_RADIANCE_NAMES = [sanitize_variable_name(n) for n in (
+    'Mean Number Radiance', 'Mean Radiance', 'Radiance Mean', 'Radiance Avg', 'Rad Avg')]
+RADIANCE_NAMES = ['Radiance', 'radiance', 'rad', 'Rad']
+
+# Oltre questa età l'ultimo dato di un device non conta per produzione/radianza
+# dell'impianto (un impianto offline non deve mostrare l'ultima produzione nota)
+PLANT_DATA_MAX_AGE = timedelta(minutes=30)
+
+
+def _is_recent(record):
+    if PLANT_DATA_MAX_AGE is None:
+        return True
+    return record.timestamp >= datetime.now(timezone.utc) - PLANT_DATA_MAX_AGE
 
 """
 Probes a DLMS device to check if it is reachable.
@@ -79,16 +99,15 @@ def read_dlms_values(device):
             logger.info(f"Rest API call: {rest_api_call}")
             logger.info(f"Payload: {payload}")
             logger.info(f"Params: {params}")
-            response = requests.post(rest_api_call, params=params, json=payload)
-            logger.info(f"Response: {response.json()}")
+            # Timeout: senza, un gateway bloccato terrebbe il task (e il lock) fino al kill
+            response = requests.post(rest_api_call, params=params, json=payload, timeout=30)
 
             if response.ok:
                 data = response.json()
                 logger.info(f"Data: {data}")
 
                 # Aggregate the values and the timestamps for each column_idx
-                reading = []
-                mapped_values = {}
+                # (mapped_values accumula tutti gli OBIS: non va azzerato qui)
                 for reading in data['results']:
                     sanitized_name = sanitize_variable_name(reading['varname'])
                     mapped_values[sanitized_name] = {
@@ -192,6 +211,8 @@ def map_variables(base_values, device):
             
             # Applico il conversion factor
             converted_value = convert_value(raw_value - (mapping.offset or 0), mapping.conversion_factor)
+            if converted_value is None:
+                raise Exception(f"Invalid conversion factor {mapping.conversion_factor!r} for variable {mapping.var_name}")
 
             # Salvo il valore nel dizionario
             sanitized_name = sanitize_variable_name(mapping.var_name)
@@ -201,12 +222,9 @@ def map_variables(base_values, device):
             }
 
         except Exception as e:
-            sanitized_name = sanitize_variable_name(mapping.var_name)
-            mapped_values[sanitized_name] = {
-                "value": 0,
-                "unit": mapping.unit if hasattr(mapping, "unit") else "N/A"
-            }
-            logger.info(f"Error while mapping the values: {e}")
+            # La variabile non si salva: uno 0 verrebbe preso per una lettura
+            # reale (disponibilità, integrale di energia, grafici)
+            logger.warning(f"Variable {mapping.var_name} skipped: {e}")
             continue
     json_result = json.dumps(mapped_values, indent=4)
     logger.info(f"Mapped JSON: {json_result}")
@@ -224,29 +242,33 @@ def compute_variables(mapped_values, device):
     for var in computed_vars:
         try:
 
-            "Work the data and adapt it to the sympify formula input data"
-            values = {key: value_data["value"] for key, value_data in mapped_values.items()}
+            # Variabili mappate + variabili calcolate prima di questa (ordine admin)
+            values = {
+                key: value_data["value"]
+                for key, value_data in {**mapped_values, **results}.items()
+                if isinstance(value_data, dict) and "value" in value_data
+            }
             logger.info(f"Worked data: {values}")
 
-            sanitized_formula = sanitize_variable_name(var.formula)
-            formula = sympify(a=sanitized_formula)
-            logger.info(f"formula: {formula}")
-
-            computed_value = float(formula.evalf(subs=values))
+            # La formula NON va sanitizzata: trasformerebbe anche operatori e
+            # spazi ("Pin - Pout" -> "Pin___Pout"). Nelle formule i nomi delle
+            # variabili vanno scritti già con "_" al posto di spazi e "-".
+            logger.info(f"formula: {var.formula}")
+            computed_value = evaluate_formula(var.formula, values)
             rounded_value = round_to_2_decimals(computed_value)
             logger.info(f"Computed value: {rounded_value}")
 
-            results[var.var_name] = {
+            # Chiave sanitizzata come per le variabili mappate (le view la
+            # cercano con sanitize_variable_name)
+            results[sanitize_variable_name(var.var_name)] = {
                 "value": rounded_value,
-                "unit": var.unit 
+                "unit": var.unit
             }
             logger.info(computed_vars)
         except Exception as e:
-            results[var.var_name] = {
-                "value": 0,
-                "unit": var.unit if hasattr(var, "unit") else "N/A"
-            }
-            logger.info(f"Error while mapping the values: {e}")
+            # Formula non calcolabile (variabile mancante, divisione per zero...):
+            # meglio nessun valore che uno 0 finto
+            logger.warning(f"Computed variable {var.var_name} skipped: {e}")
             continue
 
     # Convert to JSON
@@ -254,6 +276,48 @@ def compute_variables(mapped_values, device):
     logger.info(f"Mapped JSON: {json_result}")
     logger.info(f"Computed variables for device {device.name}: {computed_vars}")
     return results
+
+"""
+Add an energy increment (kWh) to the cumulative, daily, weekly and monthly
+counters of `kind` ('produced' or 'consumed'), starting from the last EnergyData
+record. A period counter restarts from 0 when the last record belongs to a
+previous period.
+"""
+def _accumulate_energy(result, kind, increment, last_record, period_starts):
+    last_data = last_record.data if last_record else {}
+    last_ts = last_record.timestamp if last_record else None
+
+    def previous(key, period_start=None):
+        if last_ts is None or (period_start is not None and last_ts < period_start):
+            return 0.0
+        value = last_data.get(key)
+        return value.get('value', 0.0) if isinstance(value, dict) else 0.0
+
+    # 4 decimali: con letture ogni minuto gli incrementi sono dell'ordine di 0.01 kWh
+    result[f'Energy_{kind}'] = {'value': round(previous(f'Energy_{kind}') + increment, 4), 'unit': 'kWh'}
+    for period, start in zip(('daily', 'weekly', 'monthly'), period_starts):
+        key = f'Energy_{period}_{kind}'
+        result[key] = {'value': round(previous(key, start) + increment, 4), 'unit': 'kWh'}
+
+"""
+Energy (kWh) between the previous reading and this one: trapezoidal mean of the
+power times the elapsed time. After a gap longer than MAX_INTEGRATION_GAP_SECONDS
+nothing is integrated (the mean of two distant readings is meaningless).
+"""
+def _power_increment_kwh(power_name, variables, previous_data):
+    delta_time = (datetime.now(timezone.utc) - previous_data.timestamp).total_seconds()
+    current_p = variables.get(power_name, {}).get('value', 0)
+    # Lettura precedente senza la potenza (formula fallita, registro mancante):
+    # uso il valore attuale invece di 0, che dimezzerebbe l'incremento
+    previous_p = previous_data.data.get(power_name, {}).get('value', current_p)
+    average_value = (current_p + previous_p) / 2
+    # Energia in kWh: se la potenza è in W la porto in kW
+    if str(variables.get(power_name, {}).get('unit') or '').strip() == 'W':
+        average_value = average_value / 1000
+    if delta_time > MAX_INTEGRATION_GAP_SECONDS:
+        logger.warning(f"Gap of {delta_time:.0f}s since last reading: energy increment skipped")
+        return 0.0
+    return average_value * delta_time / 3600
 
 """
 Compute energy as power integral
@@ -264,296 +328,65 @@ def compute_energy(variables, device_data, energy_data):
         # Get the most recent data
         previous_data = device_data.order_by('-timestamp').first()
 
-        # Define possible power variable names
-        power_prod_variable_names = ['Pout', 'Power Production', 'Potenza in uscita']
-        power_cons_variable_names = ['Pin', 'Power Consumption', 'Potenza in entrata']
-        power_variable_names = ['P', 'Power', 'Potenza']
+        power_name = next((n for n in POWER_NAMES if n in variables), None)
+        power_prod_variable_name = next((n for n in POWER_PROD_NAMES if n in variables), None)
+        power_cons_variable_name = next((n for n in POWER_CONS_NAMES if n in variables), None)
+        # Solo le letture DLMS (profili a 15 minuti) hanno il timestamp del contatore
+        timestamp = variables.get('timestamp')
+        logger.info(f"Power variables: single={power_name}, prod={power_prod_variable_name}, cons={power_cons_variable_name}")
 
-        power_name = None
-        power_cons_variable_name = None
-        power_prod_variable_name = None
-        is_power_splitted = False
-
-        # Check if the power variable name is configured (MODBUS VERSION)
-        is_single_power_variable = False
-        for name in power_variable_names:
-            if name in variables:
-                power_name = name
-                is_single_power_variable = True
-                break
-
-        logger.info(f"is_single_power_variable: {is_single_power_variable}")
-        if is_single_power_variable:
-            logger.info(f"power_name: {power_name}")
-
-        # Check if the power variable name is configured (DLMS VERSION - Two variables for power)
-        if not is_single_power_variable:
-            is_single_power_variable = False
-            for name in power_prod_variable_names:
-                if name in variables:
-                    power_prod_variable_name = name
-                    is_power_splitted = True
-                    break
-            
-            logger.info(f"power_prod_variable_name: {power_prod_variable_name}")
-
-            for name in power_cons_variable_names:
-                if name in variables:
-                    power_cons_variable_name = name
-                    is_power_splitted = True
-                    break
-
-        # Get timestamp of the dlms reading of the power variable
-            timestamp = variables.get('timestamp', None)
-            if not timestamp:
-                logger.info(f"No timestamp found in variables")
-                return None
-
-            logger.info(f"power_cons_variable_name: {power_cons_variable_name}")
-            logger.info(f"is_power_splitted: {is_power_splitted}")
-        # Compute energy for single power variable (DLMS VERSION)
-        if previous_data and is_single_power_variable and not is_power_splitted:
-            # Calculate delta time
-            delta_time = (datetime.now(timezone.utc) - previous_data.timestamp).total_seconds()
-
-            # Calculate the average value of power
-            previous_p = previous_data.data.get(power_name, {}).get('value', 0)
-            current_p = variables.get(power_name, {}).get('value', 0)
-            average_value = (current_p + previous_p) / 2
-
-            # Compute the energy increment for this period
-            energy_increment = round_to_2_decimals(average_value * delta_time)
-
-            # Get previous energy values
-            previous_energy = previous_data.data.get('Energy', {}).get('value', 0.0)
-            previous_energy_produced = previous_data.data.get('Energy_produced', {}).get('value', 0.0)
-            previous_energy_consumed = previous_data.data.get('Energy_consumed', {}).get('value', 0.0)
-
-            # Update produced/consumed based on the sign of energy increment
-            # Negative power = energy produced, Positive power = energy consumed
-            if average_value >= 0:
-                # Consumption (positive power)
-                energy_consumed = round_to_2_decimals(previous_energy_consumed + energy_increment)
-                energy_produced = round_to_2_decimals(previous_energy_produced)
-            else:
-                # Production (negative power)
-                energy_produced = round_to_2_decimals(previous_energy_produced + abs(energy_increment))
-                energy_consumed = round_to_2_decimals(previous_energy_consumed)
-
-            # Total energy is still the running sum of all increments
-            integral_value = round_to_2_decimals(previous_energy + energy_increment)
-
-            logger.info(f"Computed integral value: {integral_value}")
-            
-            # Compute energy for different periods
-            now = datetime.now(timezone.utc)
-
-            # Define date ranges
-            start_of_day_utc = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            start_of_day_local = convert_to_local_time(start_of_day_utc)
-            start_of_day_filter = start_of_day_local.astimezone(timezone.utc)
-            
-            # Daily energy
-            daily_records = device_data.filter(timestamp__gte=start_of_day_filter)
-            daily_produced = daily_records.aggregate(
-                total=Sum(RawSQL("CASE WHEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) < 0 THEN ABS(CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION)) ELSE 0 END", []))
-            )['total'] or 0.0
-            daily_consumed = daily_records.aggregate(
-                total=Sum(RawSQL("CASE WHEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) >= 0 THEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) ELSE 0 END", []))
-            )['total'] or 0.0
-
-            # Weekly energy
-            start_of_week_utc = now.replace(hour=0, minute=0, second=0, microsecond=0).isocalendar().weekday(1)
-            start_of_week_local = convert_to_local_time(start_of_week_utc)
-            start_of_week_filter = start_of_week_local.astimezone(timezone.utc)
-            weekly_records = device_data.filter(timestamp__gte=start_of_week_filter)
-            weekly_produced = weekly_records.aggregate(
-                total=Sum(RawSQL("CASE WHEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) < 0 THEN ABS(CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION)) ELSE 0 END", []))
-            )['total'] or 0.0
-            weekly_consumed = weekly_records.aggregate(
-                total=Sum(RawSQL("CASE WHEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) >= 0 THEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) ELSE 0 END", []))
-            )['total'] or 0.0
-
-            # Monthly energy
-            start_of_month_utc = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            start_of_month_local = convert_to_local_time(start_of_month_utc)
-            start_of_month_filter = start_of_month_local.astimezone(timezone.utc)
-            monthly_records = device_data.filter(timestamp__gte=start_of_month_filter)
-            monthly_produced = monthly_records.aggregate(
-                total=Sum(RawSQL("CASE WHEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) < 0 THEN ABS(CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION)) ELSE 0 END", []))
-            )['total'] or 0.0
-            monthly_consumed = monthly_records.aggregate(
-                total=Sum(RawSQL("CASE WHEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) >= 0 THEN CAST(data->'"+power_name+"'->>'value' AS DOUBLE PRECISION) ELSE 0 END", []))
-            )['total'] or 0.0
-
-            # Apply time factor to get energy values (power × time)
-            time_factor = delta_time  # This is approximate - ideally would sum actual time intervals
-
-            # Store all computed values in a structured dictionary
-            energy_data = {
-                'Energy': {'value': round_to_2_decimals(energy_produced + energy_consumed), 'unit': 'kWh'},
-                'Energy_produced': {'value': energy_produced, 'unit': 'kWh'},
-                'Energy_consumed': {'value': energy_consumed, 'unit': 'kWh'},
-                
-                'Energy_daily_produced': {'value': round_to_2_decimals(daily_produced * time_factor), 'unit': 'kWh'},
-                'Energy_daily_consumed': {'value': round_to_2_decimals(daily_consumed * time_factor), 'unit': 'kWh'},
-                
-                'Energy_weekly_produced': {'value': round_to_2_decimals(weekly_produced * time_factor), 'unit': 'kWh'},
-                'Energy_weekly_consumed': {'value': round_to_2_decimals(weekly_consumed * time_factor), 'unit': 'kWh'},
-                
-                'Energy_monthly_produced': {'value': round_to_2_decimals(monthly_produced * time_factor), 'unit': 'kWh'},
-                'Energy_monthly_consumed': {'value': round_to_2_decimals(monthly_consumed * time_factor), 'unit': 'kWh'},
-            }
-
-
-            logger.info(f"Computed energy data: {energy_data}")
-            return energy_data
-        
-        # Compute energy for split power variables (DLMS VERSION)
-        elif is_power_splitted and not is_single_power_variable and (power_prod_variable_name or power_cons_variable_name):
-            
-            logger.info(f"Computing the time intervals for the energy data")
-
-            # Daily, weekly, monthly energy produced and consumed
-            now = datetime.now(timezone.utc)
-
-            # Start of UTC day
-            start_of_day_utc = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        
-            # Convert to local (Django TZ)
-            start_of_day_local = convert_to_local_time(start_of_day_utc)
-
-            # For filtering DB (which expects UTC), convert back. Timestamps are utc in django
-            start_of_day_filter = start_of_day_local.astimezone(timezone.utc)
-
-            daily_records = energy_data.filter(timestamp__gte=start_of_day_filter)
-
-            # Start of UTC week
-            start_of_week_utc = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=now.weekday())
-
-            # Convert to local (Django TZ)
-            start_of_week_local = convert_to_local_time(start_of_week_utc)
-
-            # For filtering DB (which expects UTC), convert back. Timestampas are utc in django
-            start_of_week_filter = start_of_week_local.astimezone(timezone.utc)
-
-            weekly_records = energy_data.filter(timestamp__gte=start_of_week_filter)
-
-            # Start of UTC month
-            start_of_month_utc = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-            # Convert to local (Django TZ)
-            start_of_month_local = convert_to_local_time(start_of_month_utc)
-
-            # For filtering DB (which expects UTC), convert back. Timestampas are utc in django
-            start_of_month_filter = start_of_month_local.astimezone(timezone.utc)
-            monthly_records = energy_data.filter(timestamp__gte=start_of_month_filter)
-
-            # Create a structured dictionary for the energy data
-            energy_data = {}
-
-            # Daily, weekly, monthly energy produced
-            if power_prod_variable_name:
-
-                logger.info(f"Computing energy for power produced: {power_prod_variable_name}")
-
-                # Get the current value of power produced
-                current_p_produced = variables.get(power_prod_variable_name, {}).get('value', 0)
-
-                # Compute the energy increment for this period
-                energy_produced_increment = round_to_2_decimals(current_p_produced / 4)
-
-                # Get the previous energy produced
-                previous_energy_produced = previous_data.data.get('Energy_produced', {}).get('value', 0.0) if previous_data else 0.0
-
-                # Update the energy produced
-                energy_produced = round_to_2_decimals(previous_energy_produced + energy_produced_increment)
-
-                # Daily, weekly, monthly energy produced variables
-                last_daily_record = daily_records.order_by('-timestamp').first()
-                if last_daily_record and 'Energy_daily_produced' in last_daily_record.data:
-                    daily_produced = last_daily_record.data['Energy_daily_produced'].get('value', 0.0)
-                else:
-                    daily_produced = 0.0
-                daily_produced = round_to_2_decimals(daily_produced + energy_produced_increment)
-
-                last_weekly_record = weekly_records.order_by('-timestamp').first()
-                if last_weekly_record and 'Energy_weekly_produced' in last_weekly_record.data:
-                    weekly_produced = last_weekly_record.data['Energy_weekly_produced'].get('value', 0.0)
-                else:
-                    weekly_produced = 0.0
-                weekly_produced = round_to_2_decimals(weekly_produced + energy_produced_increment)
-
-                last_monthly_record = monthly_records.order_by('-timestamp').first()
-                if last_monthly_record and 'Energy_monthly_produced' in last_monthly_record.data:
-                    monthly_produced = last_monthly_record.data['Energy_monthly_produced'].get('value', 0.0)
-                else:
-                    monthly_produced = 0.0
-                monthly_produced = round_to_2_decimals(monthly_produced + energy_produced_increment)
-
-                # Add energy produced to the energy data dictionary
-                energy_data['Energy_produced'] = {'value': energy_produced, 'unit': 'kWh'}
-                energy_data['Energy_daily_produced'] = {'value': daily_produced, 'unit': 'kWh'}
-                energy_data['Energy_weekly_produced'] = {'value': weekly_produced, 'unit': 'kWh'}
-                energy_data['Energy_monthly_produced'] = {'value': monthly_produced, 'unit': 'kWh'}
-
-            # Daily, weekly, monthly energy consumed
-            if power_cons_variable_name:
-
-                logger.info(f"Computing energy for power consumed: {power_cons_variable_name}")
-
-                # Get the current value of power consumed
-                current_p_consumed = variables.get(power_cons_variable_name, {}).get('value', 0)
-
-                # Compute the energy increment for this period
-                energy_consumed_increment = round_to_2_decimals(current_p_consumed / 4)
-
-                # Get the previous energy consumed
-                previous_energy_consumed = previous_data.data.get('Energy_consumed', {}).get('value', 0.0) if previous_data else 0.0
-
-                # Update the energy consumed
-                energy_consumed = round_to_2_decimals(previous_energy_consumed + energy_consumed_increment)
-
-                # Daily, weekly, monthly energy consumed variables
-                last_daily_record_cons = daily_records.order_by('-timestamp').first()
-                if last_daily_record_cons and 'Energy_daily_consumed' in last_daily_record_cons.data:
-                    daily_consumed = last_daily_record_cons.data['Energy_daily_consumed'].get('value', 0.0)
-                else:
-                    daily_consumed = 0.0
-                daily_consumed = round_to_2_decimals(daily_consumed + energy_consumed_increment)
-
-                last_weekly_record_cons = weekly_records.order_by('-timestamp').first()
-                if last_weekly_record_cons and 'Energy_weekly_consumed' in last_weekly_record_cons.data:
-                    weekly_consumed = last_weekly_record_cons.data['Energy_weekly_consumed'].get('value', 0.0)
-                else:
-                    weekly_consumed = 0.0
-                weekly_consumed = round_to_2_decimals(weekly_consumed + energy_consumed_increment)
-
-                last_monthly_record_cons = monthly_records.order_by('-timestamp').first()
-                if last_monthly_record_cons and 'Energy_monthly_consumed' in last_monthly_record_cons.data:
-                    monthly_consumed = last_monthly_record_cons.data['Energy_monthly_consumed'].get('value', 0.0)
-                else:
-                    monthly_consumed = 0.0
-                monthly_consumed = round_to_2_decimals(monthly_consumed + energy_consumed_increment)
-
-                # Add energy consumed to the energy data dictionary
-                energy_data['Energy_consumed'] = {'value': energy_consumed, 'unit': 'kWh'}
-                energy_data['Energy_daily_consumed'] = {'value': daily_consumed, 'unit': 'kWh'}
-                energy_data['Energy_weekly_consumed'] = {'value': weekly_consumed, 'unit': 'kWh'}
-                energy_data['Energy_monthly_consumed'] = {'value': monthly_consumed, 'unit': 'kWh'}
-
-            energy_data['timestamp'] = timestamp
-            logger.info(f"Computed energy data: {energy_data}")
-            return energy_data
-
-        else:   
-            # If none of the above condition applies, the dict returned is empty.
+        if not (power_name or power_prod_variable_name or power_cons_variable_name):
             return None
+
+        # Contatori precedenti: vivono in EnergyData, non in DeviceData
+        previous_energy = energy_data.order_by('-timestamp').first()
+        period_starts = local_period_starts()
+        new_energy = {}
+
+        if power_name:
+            # Potenza unica con segno: negativa = prodotta, positiva = consumata
+            if not previous_data:
+                return None
+            energy_increment = _power_increment_kwh(power_name, variables, previous_data)
+            produced_increment = abs(energy_increment) if energy_increment < 0 else 0.0
+            consumed_increment = energy_increment if energy_increment >= 0 else 0.0
+            _accumulate_energy(new_energy, 'produced', produced_increment, previous_energy, period_starts)
+            _accumulate_energy(new_energy, 'consumed', consumed_increment, previous_energy, period_starts)
+            new_energy['Energy'] = {
+                'value': round(new_energy['Energy_produced']['value'] + new_energy['Energy_consumed']['value'], 4),
+                'unit': 'kWh',
+            }
+        else:
+            # Potenze separate prodotta/consumata
+            for kind, name in (('produced', power_prod_variable_name), ('consumed', power_cons_variable_name)):
+                if not name:
+                    # Potenza assente in questa lettura: i contatori esistenti
+                    # vanno riportati, altrimenti il record successivo
+                    # ripartirebbe da 0
+                    if previous_energy and f'Energy_{kind}' in previous_energy.data:
+                        _accumulate_energy(new_energy, kind, 0.0, previous_energy, period_starts)
+                    continue
+                if timestamp:
+                    # DLMS: una lettura ogni 15 minuti, kWh = kW / 4
+                    increment = variables.get(name, {}).get('value', 0) / 4
+                elif previous_data:
+                    # Modbus: integrale tra due letture come per la potenza unica
+                    increment = _power_increment_kwh(name, variables, previous_data)
+                else:
+                    continue  # prima lettura Modbus: niente da integrare
+                _accumulate_energy(new_energy, kind, increment, previous_energy, period_starts)
+            if not new_energy:
+                return None
+            if timestamp:
+                new_energy['timestamp'] = timestamp
+
+        logger.info(f"Computed energy data: {new_energy}")
+        return new_energy
 
     except Exception as e:
         logger.error(f"Error during computation: {e}", exc_info=True)
         return None
-        
+
 """
 Compute device availability
 """
@@ -561,10 +394,9 @@ def compute_device_availability(device, data):
     try:
         now = datetime.now(timezone.utc)
         now_local = convert_to_local_time(now)
-        # Get start of local day in UTC
-        start_of_local_day = datetime(now_local.year, now_local.month, now_local.day, 0, 0, 0)
-        start_of_local_day_utc = start_of_local_day.astimezone(timezone.utc)
-        device_data = DeviceData.objects.filter(device_name=device, timestamp__gte=start_of_local_day_utc)
+        # Mezzanotte locale (aware): un datetime naive verrebbe letto come UTC
+        start_of_local_day = local_period_starts(now)[0]
+        device_data = DeviceData.objects.filter(device_name=device, timestamp__gte=start_of_local_day)
         if device_data.count() == 0:
             return 0
         else:
@@ -686,8 +518,9 @@ def is_device_data_already_stored(device, data):
                         return True
         return False
     except Exception as e:
-        logger.info(f"Error while checking the device data: {e}")
-        return True
+        # Nel dubbio si salva: scartare il dato lo perderebbe senza traccia
+        logger.warning(f"Error while checking the device data: {e}")
+        return False
 
 """
 Check if the energy data is already stored in the Database
@@ -713,8 +546,9 @@ def is_energy_data_already_stored(device, data):
                         return True
         return False
     except Exception as e:
-        logger.info(f"Error while checking the energy data: {e}")
-        return True
+        # Nel dubbio si salva: scartare il dato lo perderebbe senza traccia
+        logger.warning(f"Error while checking the energy data: {e}")
+        return False
 
 """
 Compute plant availability
@@ -791,6 +625,12 @@ def get_quarter_hour_window(timestamp):
     
     return start_time, end_time
 
+def _to_kw(value):
+    """Valore di potenza {'value', 'unit'} in kW (la produzione d'impianto è in kW)."""
+    if str(value.get('unit') or '').strip() == 'W' and isinstance(value['value'], (int, float)):
+        return value['value'] / 1000
+    return value['value']
+
 """
 Compute plant production as (Total daily energy produced / Radiance) * performance factor
 """
@@ -798,7 +638,7 @@ def compute_plant_production(gateway, devices):
     try:
         # Aggregate the power in of the devices
         power_out = 0
-        power_out_variable_names = ['Pout', 'Power Production', 'Potenza in uscita']
+        power_out_variable_names = POWER_PROD_NAMES
         
         for device in devices:
             if device.is_enabled:
@@ -806,7 +646,7 @@ def compute_plant_production(gateway, devices):
                 latest_device_data = DeviceData.objects.filter(device_name=device).order_by('-timestamp').first()
                 logger.info(f"Latest device data: {latest_device_data}")
                 
-                if latest_device_data and latest_device_data.data:
+                if latest_device_data and latest_device_data.data and _is_recent(latest_device_data):
                     logger.info(f"Latest device data items: {latest_device_data.data.items()}")
                     
                     # Check if device has power variables
@@ -839,7 +679,7 @@ def compute_plant_production(gateway, devices):
                                         
                                         # Safely extract numeric value
                                         if isinstance(value, dict) and 'value' in value:
-                                            power_value = value['value']
+                                            power_value = _to_kw(value)
                                         elif isinstance(value, (int, float)):
                                             power_value = value
                                         else:
@@ -860,7 +700,7 @@ def compute_plant_production(gateway, devices):
                                 if key in power_out_variable_names:
                                     # Safely extract numeric value
                                     if isinstance(value, dict) and 'value' in value:
-                                        power_value = value['value']
+                                        power_value = _to_kw(value)
                                     elif isinstance(value, (int, float)):
                                         power_value = value
                                     else:
@@ -883,10 +723,9 @@ def compute_plant_production(gateway, devices):
 def find_radiance_value(devices):
     try:
         # Define mean radiance keys (higher priority)
-        #mean_radiance = ['Mean_Number_Radiance', 'Radiance_Mean', 'Rad_Mean', 'Radiance_Avg', 'Rad_Avg']
-        mean_radiance = ['Mean Number Radiance', 'Mean Radiance', 'Radiance Mean', 'Radiance Avg', 'Rad Avg']
+        mean_radiance = MEAN_RADIANCE_NAMES
         # Define general radiance keys (lower priority)
-        radiance = ['Radiance', 'radiance', 'rad', 'Rad']
+        radiance = RADIANCE_NAMES
         
         radiance_value = None
         mean_radiance_value = None
@@ -902,7 +741,7 @@ def find_radiance_value(devices):
                     logger.info(f"Latest device data items: {latest_device_data.data.items()}")
                     logger.info(f"Latest device data timestamp: {latest_device_data.timestamp}")
 
-                if latest_device_data and latest_device_data.data:
+                if latest_device_data and latest_device_data.data and _is_recent(latest_device_data):
                     # Check if device has radiance variables (either mean or general)
                     device_has_mean_radiance = any(key in latest_device_data.data for key in mean_radiance)
                     device_has_radiance = any(key in latest_device_data.data for key in radiance)

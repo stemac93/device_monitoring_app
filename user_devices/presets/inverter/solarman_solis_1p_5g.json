@@ -209,9 +209,9 @@
   ],
   "computed": [
     {
-      "name": "Power",
-      "unit": "W",
-      "formula": "PV_Power*1000",
+      "name": "Pout",
+      "unit": "kW",
+      "formula": "max(0, PV_Power)",
       "show_on_graph": true,
       "show_in_homepage": true
     }

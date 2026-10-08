@@ -40,43 +40,42 @@ class MosquittoAdminError(Exception):
     pass
 
 
-def add_user(username: str, password: str) -> None:
-    url = f"{_base_url()}/users"
-    r = requests.post(
-        url,
-        json={"username": username, "password": password},
-        headers=_headers(),
-        timeout=15,
-    )
+def _request(method: str, path: str, **kwargs) -> requests.Response:
+    """Chiamata autenticata a mosquitto-admin.
+
+    Qualsiasi errore (token mancante, helper irraggiungibile, timeout, risposta
+    non 2xx) diventa MosquittoAdminError, l'unica eccezione che i chiamanti
+    (signal, admin action) gestiscono.
+    """
+    try:
+        r = requests.request(method, f"{_base_url()}{path}", headers=_headers(), timeout=15, **kwargs)
+    except (RuntimeError, requests.RequestException) as e:
+        raise MosquittoAdminError(f"{method} {path} failed: {e}") from e
     if not r.ok:
-        raise MosquittoAdminError(f"add_user failed: {r.status_code} {r.text}")
+        raise MosquittoAdminError(f"{method} {path} failed: {r.status_code} {r.text}")
+    return r
+
+
+def add_user(username: str, password: str) -> None:
+    _request("POST", "/users", json={"username": username, "password": password})
     logger.info("Added MQTT user %s", username)
 
 
 def delete_user(username: str) -> None:
-    url = f"{_base_url()}/users/{username}"
-    r = requests.delete(url, headers=_headers(), timeout=15)
-    if not r.ok:
-        raise MosquittoAdminError(f"delete_user failed: {r.status_code} {r.text}")
+    _request("DELETE", f"/users/{username}")
     logger.info("Removed MQTT user %s", username)
 
 
 def rewrite_acl(entries: List[AclEntry]) -> None:
-    url = f"{_base_url()}/acl"
     payload = {
         "entries": [{"username": e.username, "topics": e.topics} for e in entries]
     }
-    r = requests.post(url, json=payload, headers=_headers(), timeout=15)
-    if not r.ok:
-        raise MosquittoAdminError(f"rewrite_acl failed: {r.status_code} {r.text}")
+    _request("POST", "/acl", json=payload)
     logger.info("Rewrote ACL with %d entries", len(entries))
 
 
 def reload_broker() -> None:
-    url = f"{_base_url()}/reload"
-    r = requests.post(url, headers=_headers(), timeout=15)
-    if not r.ok:
-        raise MosquittoAdminError(f"reload_broker failed: {r.status_code} {r.text}")
+    _request("POST", "/reload")
     logger.info("Mosquitto reloaded")
 
 
